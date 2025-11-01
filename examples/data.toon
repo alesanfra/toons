@@ -1,0 +1,4 @@
+users[2]{name,role}:
+  Alice,admin
+  Bob,user
+active: true
