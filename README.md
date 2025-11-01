@@ -1,6 +1,6 @@
-# TOONS - Token Oriented Object Notation
+# TOONS - a TOON Serializer
 
-A fast Rust-based parser and serializer for the TOON format (Token Oriented Object Notation), a token-efficient data serialization format designed specifically for Large Language Models.
+This is a fast Rust-based parser and serializer for the TOON format (Token Oriented Object Notation), a token-efficient data serialization format designed specifically for Large Language Models.
 
 This library provides a Python interface that mirrors the API of Python's standard `json` module, making it easy to work with TOON-formatted strings and files.
 
@@ -31,24 +31,21 @@ The implementation follows the [TOON Specification v1.3](https://github.com/joha
 
 ## Installation
 
+### Production Installation
+
+```bash
+pip install toons
+```
+
 ### Development Installation
 
 ```bash
 # Install development dependencies
-pip install -e ".[dev]"
+pip install -r requirements-dev.txt
+pip insta
 
 # Build the Rust extension
 maturin develop
-```
-
-### Production Installation
-
-```bash
-# Build wheel
-maturin build --release
-
-# Install the wheel
-pip install target/wheels/*.whl
 ```
 
 ## Usage
@@ -250,7 +247,7 @@ maturin develop
 maturin build --release
 ```
 
-### Project Structure
+
 
 ```
 toons/
