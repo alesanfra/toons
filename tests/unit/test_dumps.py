@@ -248,7 +248,7 @@ class TestDumpsComplexStructures:
     @pytest.mark.parametrize(
         "obj,expected_lines",
         [
-            # Nested object with arrays (note: arrays in nested objects get extra indent)
+            # Nested object with array field (per TOON spec v1.3: same depth as sibling fields)
             (
                 {
                     "server": {
@@ -256,7 +256,7 @@ class TestDumpsComplexStructures:
                         "ports": [8080, 8443],
                     }
                 },
-                ["server:", "  host: localhost", "    ports[2]: 8080,8443"],
+                ["server:", "  host: localhost", "  ports[2]: 8080,8443"],
             ),
             # Multiple nested levels
             (

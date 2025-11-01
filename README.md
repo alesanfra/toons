@@ -233,7 +233,7 @@ pytest tests/unit/test_loads.py -k test_loads_simple_object
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.7+
 - Rust (latest stable)
 - maturin
 
