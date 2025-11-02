@@ -1,0 +1,97 @@
+metadata:
+  version: 1.0.0
+  created: "2025-11-02T10:30:00Z"
+  author: null
+  tags[3]: test,complex,comprehensive
+  verified: true
+  score: 98.5
+primitives:
+  integer_positive: 42
+  integer_negative: -17
+  integer_zero: 0
+  float_positive: 3.14159
+  float_negative: -99.99
+  float_scientific: 0.00025
+  float_small: 0.0000001
+  float_large: 15000000000
+  string_simple: hello
+  string_empty: ""
+  string_unicode: "Hello 世界 🌍"
+  string_with_quotes: "She said \"hello\""
+  string_with_escapes: "Line1\nLine2\tTabbed"
+  boolean_true: true
+  boolean_false: false
+  null_value: null
+arrays:
+  empty[0]:
+  integers[5]: 1,2,3,4,5
+  floats[3]: 1.1,2.2,3.3
+  strings[3]: alpha,beta,gamma
+  booleans[3]: true,false,true
+  mixed[5]: 1,two,3,true,null
+  nested[3]:
+    - [2]: 1,2
+    - [2]: 3,4
+    - [2]: 5,6
+objects:
+  empty:
+  simple:
+    key1: value1
+    key2: value2
+  nested:
+    level1:
+      level2:
+        level3: deep
+  mixed_values:
+    string: text
+    number: 123
+    bool: true
+    null: null
+    array[3]: 1,2,3
+    object:
+      nested: value
+tabular_data[4]{id,name,age,active,salary}:
+  1,Alice,30,true,75000.5
+  2,Bob,25,false,65000
+  3,Charlie,35,true,85000.75
+  4,Diana,28,true,70000
+edge_cases:
+  very_long_string: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+  special_chars: "!@#$%^&*()_+-={}[]|:;<>?,./"
+  numbers_as_strings[3]: "123","45.67","1e10"
+  empty_nested:
+    level1:
+      level2:
+        empty_array[0]:
+        empty_object:
+  unicode_variants:
+    emoji: 🎉🚀✨💻🐍
+    chinese: 你好世界
+    japanese: こんにちは世界
+    arabic: "مرحبا بالعالم"
+    russian: "Привет мир"
+nested_arrays_of_objects[2]:
+  - category: fruits
+    items[2]{name,color,price}:
+      apple,red,1.2
+      banana,yellow,0.8
+  - category: vegetables
+    items[2]{name,color,price}:
+      carrot,orange,0.9
+      broccoli,green,1.5
+deeply_nested:
+  a:
+    b:
+      c:
+        d:
+          e:
+            f:
+              value: deep
+              level: 6
+numeric_edge_cases:
+  min_int: -2147483648
+  max_int: 2147483647
+  very_small: 0.0000000001
+  very_large: 1000000000000000
+  negative_zero: 0
+  pi: 3.141592653589793

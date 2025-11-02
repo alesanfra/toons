@@ -38,6 +38,7 @@ pub fn serialize(py: Python, obj: &Bound<'_, PyAny>, indent: usize) -> PyResult<
 
     let mut output = String::new();
     serialize_value(py, obj, &mut output, 0, ',', true, indent)?;
+
     Ok(output)
 }
 
@@ -585,6 +586,9 @@ fn serialize_expanded_list_with_key(
                 // Nested complex array
                 serialize_value(py, &item, output, depth + 1, delimiter, false, indent_size)?;
             }
+        } else if let Ok(dict) = item.cast::<PyDict>() {
+            // Object as list item - serialize with first field on same line as "-"
+            serialize_list_item_object(py, &dict, output, depth + 1, delimiter, indent_size)?;
         } else {
             serialize_value(py, &item, output, depth + 1, delimiter, false, indent_size)?;
         }
@@ -645,8 +649,113 @@ fn serialize_expanded_list(
                 // Nested complex array
                 serialize_value(py, &item, output, depth + 1, delimiter, false, indent_size)?;
             }
+        } else if let Ok(dict) = item.cast::<PyDict>() {
+            // Object as list item - serialize with first field on same line as "-"
+            serialize_list_item_object(py, &dict, output, depth + 1, delimiter, indent_size)?;
         } else {
             serialize_value(py, &item, output, depth + 1, delimiter, false, indent_size)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Serialize an object as a list item with first field on same line as "- "
+fn serialize_list_item_object(
+    py: Python,
+    dict: &Bound<'_, PyDict>,
+    output: &mut String,
+    depth: usize,
+    delimiter: char,
+    indent_size: usize,
+) -> PyResult<()> {
+    let items: Vec<_> = dict.items().iter().collect();
+
+    if items.is_empty() {
+        return Ok(());
+    }
+
+    // First field on same line as "- "
+    let (first_key, first_value) = items[0].extract::<(String, Bound<'_, PyAny>)>()?;
+
+    // Check if first value is an array
+    if first_value.is_instance_of::<PyList>() {
+        if let Ok(list) = first_value.cast::<PyList>() {
+            serialize_array_with_key(py, &first_key, &list, output, depth, delimiter, indent_size)?;
+        }
+    } else {
+        serialize_key(&first_key, output);
+        output.push(':');
+
+        if first_value.is_instance_of::<PyDict>() {
+            // Nested object
+            if let Ok(nested_dict) = first_value.cast::<PyDict>() {
+                serialize_object(
+                    py,
+                    &nested_dict,
+                    output,
+                    depth + 1,
+                    delimiter,
+                    false,
+                    indent_size,
+                )?;
+            }
+        } else {
+            // Primitive
+            output.push(' ');
+            serialize_value(
+                py,
+                &first_value,
+                output,
+                depth,
+                delimiter,
+                false,
+                indent_size,
+            )?;
+        }
+    }
+
+    // Remaining fields on new lines
+    for item in items.iter().skip(1) {
+        let (key, value) = item.extract::<(String, Bound<'_, PyAny>)>()?;
+
+        output.push('\n');
+        // Fields of list item object are indented one level deeper than the "- " line
+        write_indent(output, depth + 1, indent_size);
+
+        if value.is_instance_of::<PyList>() {
+            if let Ok(list) = value.cast::<PyList>() {
+                // Pass depth+1 so tabular rows are correctly indented at depth+2
+                serialize_array_with_key(
+                    py,
+                    &key,
+                    &list,
+                    output,
+                    depth + 1,
+                    delimiter,
+                    indent_size,
+                )?;
+            }
+        } else {
+            serialize_key(&key, output);
+            output.push(':');
+
+            if value.is_instance_of::<PyDict>() {
+                if let Ok(nested_dict) = value.cast::<PyDict>() {
+                    serialize_object(
+                        py,
+                        &nested_dict,
+                        output,
+                        depth + 1,
+                        delimiter,
+                        false,
+                        indent_size,
+                    )?;
+                }
+            } else {
+                output.push(' ');
+                serialize_value(py, &value, output, depth, delimiter, false, indent_size)?;
+            }
         }
     }
 
@@ -1126,9 +1235,22 @@ impl<'a> Parser<'a> {
 
             let line_trimmed = line.trim();
             if let Some(colon_pos) = line_trimmed.find(':') {
-                let key = self.parse_key(&line_trimmed[..colon_pos])?;
+                let key_part = &line_trimmed[..colon_pos];
                 let value_part = line_trimmed[colon_pos + 1..].trim();
 
+                // Check if key contains array header (e.g., key[N] or key[N]{fields})
+                if key_part.contains('[') && key_part.contains(']') {
+                    // Array as object field
+                    let value = self.parse_field_array(py, line_trimmed, list_depth + 1)?;
+                    // Extract key name before '['
+                    let key_name = key_part.split('[').next().unwrap();
+                    let key = self.parse_key(key_name)?;
+                    dict.set_item(key, value)?;
+                    // parse_field_array has already advanced self.pos
+                    continue;
+                }
+
+                let key = self.parse_key(key_part)?;
                 self.pos += 1;
 
                 if value_part.is_empty() {

@@ -247,6 +247,34 @@ maturin develop
 maturin build --release
 ```
 
+## Contributing
+
+When contributing to this project, please follow these guidelines:
+
+- **Use Conventional Commits**: All commit messages must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification
+- **Run tests**: Ensure all tests pass before submitting (`pytest tests/`)
+- **Run pre-commit hooks**: Install and run pre-commit hooks (`pre-commit install && pre-commit run -a`)
+
+### Conventional Commits Format
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`
+
+**Examples**:
+```
+feat(parser): add support for nested tabular arrays in list items
+fix(serializer): correct indentation for array fields in list item objects
+docs(readme): add contributing guidelines
+test(regression): add comprehensive complex data structure tests
+```
+
 
 
 ```
