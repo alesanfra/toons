@@ -1,7 +1,9 @@
 """Tests for configurable indentation parameter in dumps() and dump()"""
 
 import tempfile
+
 import pytest
+
 import toons
 
 

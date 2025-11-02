@@ -6,6 +6,7 @@ All tests use pytest.mark.parametrize for concise, readable test cases.
 """
 
 import pytest
+
 import toons
 
 

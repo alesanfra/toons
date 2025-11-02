@@ -12,11 +12,12 @@ Test data includes:
 - Numeric edge cases (very large/small numbers, negative zero)
 """
 
-import json
-import pytest
-import toons
-
 import io
+import json
+
+import pytest
+
+import toons
 
 
 @pytest.fixture
