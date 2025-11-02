@@ -1,8 +1,14 @@
-# TOONS
+# TOONS - Token Oriented Object Notation Serializer
+
+[![PyPI version](https://badge.fury.io/py/toons.svg)](https://badge.fury.io/py/toons)
+[![Python](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![Documentation Status](https://readthedocs.org/projects/toons/badge/?version=latest)](https://toons.readthedocs.io/en/latest/?badge=latest)
+[![CI](https://github.com/alesanfra/toons/workflows/CI/badge.svg)](https://github.com/alesanfra/toons/actions)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 **A high-performance TOON (Token Oriented Object Notation) parser and serializer for Python.**
 
-TOONS is a fast Rust-based library that provides a Python interface mirroring the `json` module API, making it easy to work with the TOON format—a token-efficient data serialization format designed specifically for Large Language Models.
+TOONS - Token Oriented Object Notation Serializer - is a fast Rust-based library that provides a Python interface mirroring the `json` module API, making it easy to work with the TOON format—a token-efficient data serialization format designed specifically for Large Language Models.
 
 ## Why TOON?
 
@@ -74,11 +80,12 @@ with open("data.toon", "r") as f:
 
 ## Documentation
 
-- 📖 **[Full Documentation](docs/)** - Complete guides and API reference
-- 🚀 **[Getting Started](docs/getting-started.md)** - Installation and first steps
-- 💡 **[Examples](docs/examples.md)** - Practical usage examples
-- 📚 **[API Reference](docs/api-reference.md)** - Complete API documentation
-- 📋 **[TOON Specification](docs/specification.md)** - Format specification v1.3
+📖 **[Read the full documentation at toons.readthedocs.io](https://toons.readthedocs.io/en/latest/)**
+
+- 🚀 **[Getting Started](https://toons.readthedocs.io/en/latest/getting-started/)** - Installation and first steps
+- 💡 **[Examples](https://toons.readthedocs.io/en/latest/examples/)** - Practical usage examples
+- 📚 **[API Reference](https://toons.readthedocs.io/en/latest/api-reference/)** - Complete API documentation
+- 📋 **[TOON Specification](https://toons.readthedocs.io/en/latest/specification/)** - Format specification v1.3
 
 ## Development
 
@@ -97,13 +104,13 @@ maturin develop
 pytest
 ```
 
-See the [Development Guide](docs/development.md) for more details.
+See the [Development Guide](https://toons.readthedocs.io/en/latest/development/) for more details.
 
 ## Contributing
 
 Contributions are welcome! Please follow [Conventional Commits](https://www.conventionalcommits.org/) and run tests before submitting.
 
-See [Contributing Guide](docs/contributing.md) for details.
+See [Contributing Guide](https://toons.readthedocs.io/en/latest/contributing/) for details.
 
 ## License
 

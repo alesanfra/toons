@@ -1,4 +1,4 @@
-# TOONS
+# TOONS - Token Oriented Object Notation Serializer
 
 **A high-performance TOON (Token Oriented Object Notation) parser and serializer for Python, implemented in Rust.**
 
