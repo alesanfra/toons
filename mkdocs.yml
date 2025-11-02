@@ -1,0 +1,81 @@
+site_name: TOONS Documentation
+site_description: A high-performance TOON (Token Oriented Object Notation) parser and serializer for Python
+site_author: Alessio Sanfratello
+site_url: https://github.com/alesanfra/toons
+
+repo_name: alesanfra/toons
+repo_url: https://github.com/alesanfra/toons
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotation
+    - content.code.copy
+  language: en
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started.md
+      - Quick Start: quick-start.md
+      - Examples: examples.md
+  - Documentation:
+      - API Reference: api-reference.md
+      - TOON Specification: specification.md
+      - Data Types: data-types.md
+  - Development:
+      - Development Guide: development.md
+      - Contributing: contributing.md
+      - Testing: testing.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - autorefs
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/alesanfra/toons
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/toons/
+
+copyright: Copyright &copy; 2025 Alessio Sanfratello
