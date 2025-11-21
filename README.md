@@ -14,24 +14,29 @@ TOONS - Token Oriented Object Notation Serializer - is a fast Rust-based library
 
 The TOON format achieves **30-60% fewer tokens** than equivalent JSON, making it ideal for LLM contexts where token count impacts costs and context capacity.
 
-**JSON (37 tokens):**
+In this simple example we can achive -40% with respect to JSON:
+
+**JSON (26 tokens):**
 ```json
 {"users": [{"name": "Alice", "age": 25}, {"name": "Bob", "age": 30}]}
 ```
 
-**TOON (17 tokens):**
+**TOON (16 tokens):**
 ```
 users[2]{name,age}:
   Alice,25
   Bob,30
 ```
 
+> **Note**: Calculations were done using Anthropic Claude tokenizer, you can experiment with different tokenizer [here](https://huggingface.co/spaces/Xenova/the-tokenizer-playground)
+
+
 ## Features
 
 - 🚀 **Fast**: Rust implementation with PyO3 bindings
 - 📊 **Token-Efficient**: 30-60% fewer tokens than JSON
 - 🔄 **Familiar API**: Drop-in replacement for `json` module
-- ✅ **Spec Compliant**: Full TOON Specification v1.3 support
+- ✅ **Spec Compliant**: Full TOON Specification v2.0 support
 - 🐍 **Python Native**: Works with standard Python types
 
 ## Quick Start
@@ -85,7 +90,7 @@ with open("data.toon", "r") as f:
 - 🚀 **[Getting Started](https://toons.readthedocs.io/en/latest/getting-started/)** - Installation and first steps
 - 💡 **[Examples](https://toons.readthedocs.io/en/latest/examples/)** - Practical usage examples
 - 📚 **[API Reference](https://toons.readthedocs.io/en/latest/api-reference/)** - Complete API documentation
-- 📋 **[TOON Specification](https://toons.readthedocs.io/en/latest/specification/)** - Format specification v1.3
+- 📋 **[TOON Specification](https://toons.readthedocs.io/en/latest/specification/)** - Format specification v2.0
 
 ## Development
 

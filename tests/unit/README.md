@@ -6,7 +6,7 @@ Unit tests for TOONS core functionality.
 
 - `test_loads.py` - Tests for `toons.loads()`
 - `test_dumps.py` - Tests for `toons.dumps()`
-- `test_spec_compliance.py` - TOON Specification v1.3 compliance
+- `test_spec_compliance.py` - TOON Specification v2.0 compliance
 - `test_complex_regression.py` - Regression tests
 - `test_indent.py` - Indentation handling
 

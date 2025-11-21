@@ -7,8 +7,8 @@
 //!
 //! # Features
 //!
-//! - **Full TOON v1.3 Specification Compliance**: Implements all features
-//!   from the official TOON specification dated 2025-10-31
+//! - **Full TOON v2.0 Specification Compliance**: Implements all features
+//!   from the official TOON specification dated 2025-11-10
 //! - **Direct Python Integration**: No intermediate JSON representation
 //! - **Configurable Indentation**: Support for custom indent sizes (≥2 spaces)
 //! - **Smart Parser**: Automatic indentation detection when parsing
@@ -54,7 +54,7 @@
 //!
 //! # Specification
 //!
-//! This implementation follows TOON Specification v1.3 (2025-10-31).
+//! This implementation follows TOON Specification v2.0 (2025-11-10).
 //! For complete specification details, see:
 //! <https://github.com/johannschopplich/toon>
 
@@ -191,7 +191,7 @@ implementation with Python bindings for high-performance encoding
 and decoding of TOON data.
 
 Features:
-    - Full TOON v1.3 Specification Compliance
+    - Full TOON v2.0 Specification Compliance
     - Direct Python Integration (no JSON overhead)
     - Configurable Indentation (≥2 spaces)
     - Smart Parser with automatic indentation detection
@@ -208,7 +208,7 @@ Quick Start:
     >>> data = toons.loads(toon_str)
 
 Specification:
-    TOON Specification v1.3 (2025-10-31)
+    TOON Specification v2.0 (2025-11-10)
     https://github.com/johannschopplich/toon
 ",
     )?;

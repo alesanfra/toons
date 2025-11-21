@@ -1,11 +1,11 @@
-//! Native TOON v1.3 implementation
+//! Native TOON v2.0 implementation
 //!
 //! This module implements TOON (Token-Oriented Object Notation) serialization
-//! and deserialization according to the TOON Specification v1.3 (2025-10-31).
+//! and deserialization according to the TOON Specification v2.0 (2025-11-10).
 //!
 //! Key features:
 //! - Direct Python object integration (no JSON intermediate representation)
-//! - Full TOON v1.3 spec compliance
+//! - Full TOON v2.0 spec compliance
 //! - Tabular format support for uniform arrays of objects
 //! - Configurable delimiters (comma, tab, pipe)
 //! - Strict mode parsing with validation
@@ -16,16 +16,16 @@ use std::fmt::Write as FmtWrite;
 
 /// Serialize a Python object to TOON format string.
 ///
-/// Implements TOON Specification v1.3 encoding rules:
+/// Implements TOON Specification v2.0 encoding rules:
 /// - Objects: key: value with proper indentation
 /// - Arrays: headers with inline or tabular format
 /// - Primitives: proper quoting and escaping
 /// - Tabular optimization for uniform object arrays
 pub fn serialize(py: Python, obj: &Bound<'_, PyAny>, indent: usize) -> PyResult<String> {
-    // Validate indent parameter (must be >= 2 per TOON spec v1.3)
+    // Validate indent parameter (must be >= 2 per TOON spec v2.0)
     if indent < 2 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "indent must be >= 2 (TOON spec v1.3 uses 2-space indentation)",
+            "indent must be >= 2 (TOON spec v2.0 uses 2-space indentation)",
         ));
     }
 
@@ -44,7 +44,7 @@ pub fn serialize(py: Python, obj: &Bound<'_, PyAny>, indent: usize) -> PyResult<
 
 /// Deserialize a TOON format string to a Python object.
 ///
-/// Implements TOON Specification v1.3 decoding rules:
+/// Implements TOON Specification v2.0 decoding rules:
 /// - Automatic root form detection (object/array/primitive)
 /// - Header parsing with delimiter detection
 /// - Tabular array reconstruction
@@ -75,7 +75,7 @@ fn serialize_value(
     } else if let Ok(i) = obj.extract::<i64>() {
         write!(output, "{}", i).unwrap();
     } else if let Ok(f) = obj.extract::<f64>() {
-        // TOON v1.3: normalize -0 to 0, no exponential notation
+        // TOON v2.0: normalize -0 to 0, no exponential notation
         if f == 0.0 {
             output.push('0');
         } else if f.is_finite() {
@@ -98,7 +98,7 @@ fn serialize_value(
     Ok(())
 }
 
-/// Serialize a string with proper quoting and escaping per TOON v1.3 Section 7
+/// Serialize a string with proper quoting and escaping per TOON v2.0 Section 7
 fn serialize_string(s: &str, output: &mut String, delimiter: char) {
     if needs_quoting(s, delimiter) {
         output.push('"');
@@ -118,7 +118,7 @@ fn serialize_string(s: &str, output: &mut String, delimiter: char) {
     }
 }
 
-/// Check if a string needs quoting per TOON v1.3 Section 7.2
+/// Check if a string needs quoting per TOON v2.0 Section 7.2
 fn needs_quoting(s: &str, delimiter: char) -> bool {
     if s.is_empty() {
         return true;
@@ -126,11 +126,6 @@ fn needs_quoting(s: &str, delimiter: char) -> bool {
 
     // Check for leading/trailing whitespace
     if s.starts_with(|c: char| c.is_whitespace()) || s.ends_with(|c: char| c.is_whitespace()) {
-        return true;
-    }
-
-    // Check for internal whitespace (strings with spaces must be quoted)
-    if s.contains(' ') {
         return true;
     }
 
@@ -161,7 +156,7 @@ fn needs_quoting(s: &str, delimiter: char) -> bool {
     false
 }
 
-/// Check if string looks numeric per TOON v1.3 Section 7.2
+/// Check if string looks numeric per TOON v2.0 Section 7.2
 fn is_numeric_like(s: &str) -> bool {
     // Matches: -?\d+(\.\d+)?(e[+-]?\d+)? or 0\d+
     if s.chars().next().unwrap_or(' ').is_ascii_digit() {
@@ -175,7 +170,7 @@ fn is_numeric_like(s: &str) -> bool {
     s.parse::<f64>().is_ok()
 }
 
-/// Serialize an object (dict) per TOON v1.3 Section 8
+/// Serialize an object (dict) per TOON v2.0 Section 8
 fn serialize_object(
     py: Python,
     dict: &Bound<'_, PyDict>,
@@ -236,7 +231,7 @@ fn serialize_object(
     Ok(())
 }
 
-/// Serialize object key per TOON v1.3 Section 7.3
+/// Serialize object key per TOON v2.0 Section 7.3
 fn serialize_key(key: &str, output: &mut String) {
     // Key can be unquoted if matches: ^[A-Za-z_][\w.]*$
     if is_valid_unquoted_key(key) {
@@ -331,7 +326,7 @@ fn serialize_array_with_key(
     Ok(())
 }
 
-/// Serialize an array (list) per TOON v1.3 Section 9
+/// Serialize an array (list) per TOON v2.0 Section 9
 fn serialize_array(
     py: Python,
     list: &Bound<'_, PyList>,
@@ -808,7 +803,7 @@ impl<'a> Parser<'a> {
         // Auto-detect indentation size
         self.detect_indent_size();
 
-        // Root form detection per TOON Spec v1.3 Section 5
+        // Root form detection per TOON Spec v2.0 Section 5
 
         // Skip empty lines at start
         while self.pos < self.lines.len() && self.lines[self.pos].trim().is_empty() {
@@ -816,8 +811,8 @@ impl<'a> Parser<'a> {
         }
 
         if self.pos >= self.lines.len() {
-            // Empty document → None (per TOON spec: empty string decodes to None)
-            return Ok(py.None());
+            // Empty document → empty object per TOON v2.0 Section 5
+            return Ok(PyDict::new(py).into());
         }
 
         let first_line = self.lines[self.pos];
@@ -996,14 +991,20 @@ impl<'a> Parser<'a> {
         let bracket_content = &trimmed[bracket_start + 1..bracket_end];
 
         // Parse length and delimiter
+        if bracket_content.trim_start().starts_with('#') {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "TOON parse error: [#N] headers were removed in v2.0; use [N]",
+            ));
+        }
+
         let (length_str, delimiter) = if bracket_content.contains('\t') {
             let parts: Vec<&str> = bracket_content.split('\t').collect();
-            (parts[0].trim_start_matches('#'), '\t')
+            (parts[0], '\t')
         } else if bracket_content.contains('|') {
             let parts: Vec<&str> = bracket_content.split('|').collect();
-            (parts[0].trim_start_matches('#'), '|')
+            (parts[0], '|')
         } else {
-            (bracket_content.trim_start_matches('#'), ',')
+            (bracket_content, ',')
         };
 
         let length = length_str.parse::<usize>().map_err(|_| {

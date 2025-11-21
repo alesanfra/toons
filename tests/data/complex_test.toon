@@ -16,7 +16,7 @@ primitives:
   float_large: 15000000000
   string_simple: hello
   string_empty: ""
-  string_unicode: "Hello 世界 🌍"
+  string_unicode: Hello 世界 🌍
   string_with_quotes: "She said \"hello\""
   string_with_escapes: "Line1\nLine2\tTabbed"
   boolean_true: true
@@ -68,8 +68,8 @@ edge_cases:
     emoji: 🎉🚀✨💻🐍
     chinese: 你好世界
     japanese: こんにちは世界
-    arabic: "مرحبا بالعالم"
-    russian: "Привет мир"
+    arabic: مرحبا بالعالم
+    russian: Привет мир
 nested_arrays_of_objects[2]:
   - category: fruits
     items[2]{name,color,price}:

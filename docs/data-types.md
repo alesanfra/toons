@@ -390,7 +390,7 @@ print(toons.dumps(data))
 
 # Parsing empty
 data = toons.loads("")
-print(data)  # None
+print(data)  # {}
 ```
 
 ### Special Characters

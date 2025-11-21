@@ -249,7 +249,7 @@ class TestDumpsComplexStructures:
     @pytest.mark.parametrize(
         "obj,expected_lines",
         [
-            # Nested object with array field (per TOON spec v1.3: same depth as sibling fields)
+            # Nested object with array field (per TOON spec v2.0: same depth as sibling fields)
             (
                 {
                     "server": {
@@ -307,10 +307,10 @@ class TestDumpsPrimitives:
         result = toons.dumps(value)
         assert result == expected
 
-    def test_string_with_spaces_quoted(self):
-        """Strings with spaces are quoted."""
+    def test_string_with_spaces_unquoted(self):
+        """Strings with internal spaces remain unquoted per v2.0."""
         result = toons.dumps("test string")
-        assert result == '"test string"'
+        assert result == "test string"
 
 
 class TestDumpsEdgeCases:

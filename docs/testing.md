@@ -219,11 +219,11 @@ class TestRoundTrip:
 
 ### Specification Compliance Tests
 
-Verify TOON Spec v1.3 compliance:
+Verify TOON Spec v2.0 compliance:
 
 ```python
 class TestSpecCompliance:
-    """Test TOON Specification v1.3 compliance."""
+    """Test TOON Specification v2.0 compliance."""
 
     def test_array_count_notation(self):
         """Test that arrays include element count [N]."""

@@ -1,7 +1,7 @@
 """
-TOON Specification v1.3 Compliance Test Suite
+TOON Specification v2.0 Compliance Test Suite
 
-This test suite validates compliance with the TOON Specification v1.3 (2025-10-31).
+This test suite validates compliance with the TOON Specification v2.0 (2025-11-10).
 Tests are organized by specification section for clear traceability.
 
 Test Coverage Summary:
@@ -86,15 +86,21 @@ class TestSection5RootForm:
         result = toons.loads(toon)
         assert result == {"key": "value", "other": 123}
 
+    def test_empty_document_decodes_to_object(self):
+        """Section 5: Empty document decodes to empty object"""
+        assert toons.loads("") == {}
+
 
 class TestSection6HeaderSyntax:
     """Section 6: Header Syntax"""
 
-    def test_header_length_marker_ignored(self):
-        """Section 6: Optional # marker MUST be accepted and ignored semantically"""
-        result1 = toons.loads("items[3]: 1,2,3")
-        result2 = toons.loads("items[#3]: 1,2,3")
-        assert result1 == result2 == {"items": [1, 2, 3]}
+    def test_header_length_marker_rejected(self):
+        """Section 6: Legacy [#N] headers were removed in v2.0"""
+        result = toons.loads("items[3]: 1,2,3")
+        assert result == {"items": [1, 2, 3]}
+
+        with pytest.raises(ValueError):
+            toons.loads("items[#3]: 1,2,3")
 
     def test_header_comma_default(self):
         """Section 6: Absence of delimiter symbol ALWAYS means comma"""
@@ -232,12 +238,12 @@ class TestSection8Objects:
         assert lines == ["parent:", "  child: value"]
 
     def test_empty_object_root(self):
-        """Section 8: Empty object at root yields empty document"""
+        """Section 8: Empty object at root yields empty document and decodes back"""
         result = toons.dumps({})
         assert result == ""
 
-        # And loads("") should return None per spec Section 5
-        assert toons.loads("") is None
+        # loads("") should return an empty object per v2.0 Section 5
+        assert toons.loads("") == {}
 
 
 class TestSection9Arrays:

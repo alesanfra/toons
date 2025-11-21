@@ -53,7 +53,7 @@ docs/
 - **[Quick Start](quick-start.md)** - Get up and running quickly
 - **[Examples](examples.md)** - Practical usage examples
 - **[API Reference](api-reference.md)** - Complete API documentation
-- **[Specification](specification.md)** - TOON format specification v1.3
+- **[Specification](specification.md)** - TOON format specification v2.0
 - **[Data Types](data-types.md)** - Type mapping and conversion
 
 ### Developer Documentation

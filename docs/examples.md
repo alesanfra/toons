@@ -254,7 +254,7 @@ users = [
     {"id": 3, "name": "Charlie", "email": "charlie@example.com"}
 ]
 
-# TOON format (47 characters, ~17 tokens)
+# TOON format (47 characters, ~16 tokens)
 toon_output = serialize_users_for_llm(users)
 print(toon_output)
 # users[3]{id,name,email}:
@@ -262,13 +262,11 @@ print(toon_output)
 #   2,Bob,bob@example.com
 #   3,Charlie,charlie@example.com
 
-# Compare with JSON (146 characters, ~37 tokens)
+# Compare with JSON (146 characters, ~26 tokens)
 import json
 json_output = json.dumps({"users": users})
 print(json_output)
 # {"users":[{"id":1,"name":"Alice","email":"alice@example.com"},...]}
-
-print(f"\nToken savings: {(1 - len(toon_output)/len(json_output)) * 100:.1f}%")
 ```
 
 ### Data Export/Import
