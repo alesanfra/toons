@@ -58,6 +58,26 @@ class TestSection2DataModel:
         # Keys should appear in the order: z, a, m, b
         assert lines == ["z: 1", "a: 2", "m: 3", "b: 4"]
 
+    def test_number_serialization_canonical_form(self):
+        """Section 2: No exponent notation"""
+        # 1e6 -> 1000000
+        assert toons.dumps({"val": 1000000.0}) == "val: 1000000"
+        # 1e-6 -> 0.000001
+        assert toons.dumps({"val": 0.000001}) == "val: 0.000001"
+
+
+class TestSection4DecodingInterpretation:
+    """Section 4: Decoding Interpretation"""
+
+    def test_number_decoding_leading_zeros(self):
+        """Section 4: Tokens with forbidden leading zeros are strings"""
+        # "05" -> string "05"
+        assert toons.loads("val: 05") == {"val": "05"}
+        # "007" -> string "007"
+        assert toons.loads("val: 007") == {"val": "007"}
+        # "0.5" is valid number
+        assert toons.loads("val: 0.5") == {"val": 0.5}
+
 
 class TestSection5RootForm:
     """Section 5: Concrete Syntax and Root Form"""
@@ -122,10 +142,11 @@ class TestSection6HeaderSyntax:
 
     def test_header_requires_colon(self):
         """Section 6: Header MUST end with colon"""
-        # Parser should reject header without colon, but currently
-        # treats it as a regular key (lenient parsing)
-        # This is a known limitation - skipping for now
-        pytest.skip("Parser is lenient with missing colons in some contexts")
+        # Parser should reject header without colon
+        # Note: Single line "items[3] 1,2,3" is a valid primitive string per Section 5
+        # We use multi-line to force object parsing
+        with pytest.raises(ValueError):
+            toons.loads("items[3] 1,2,3\nother: 1")
 
     def test_header_space_after_colon_inline(self):
         """Section 6: Exactly one space after colon for inline values"""
@@ -338,10 +359,14 @@ class TestSection11Delimiters:
 
     def test_delimiter_scoping(self):
         """Section 11: Nested headers can change delimiter"""
-        # This is a complex parsing case - skip for now
-        pytest.skip(
-            "Nested headers with different delimiters not fully supported yet"
-        )
+        # Outer uses pipe, inner uses comma
+        toon = """
+items[2|]:
+  - [2]: a,b
+  - [2]: c,d
+"""
+        result = toons.loads(toon)
+        assert result == {"items": [["a", "b"], ["c", "d"]]}
 
 
 class TestSection12IndentationWhitespace:
@@ -387,10 +412,8 @@ class TestSection14StrictModeErrors:
     def test_array_count_mismatch(self):
         """Section 14.1: Array count mismatch MUST error"""
         # Inline arrays - declared 3, but only 2 values
-        # Currently strict mode checks are not always enforced - marking as known limitation
-        pytest.skip(
-            "Strict mode validation not fully implemented for all cases"
-        )
+        with pytest.raises(ValueError):
+            toons.loads("items[3]: 1,2")
 
     def test_tabular_row_count_mismatch(self):
         """Section 14.1: Tabular row count mismatch MUST error"""
@@ -402,20 +425,62 @@ class TestSection14StrictModeErrors:
 
     def test_tabular_width_mismatch(self):
         """Section 14.1: Tabular width mismatch MUST error"""
-        # Strict mode not always enforced - marking as known limitation
-        pytest.skip(
-            "Strict mode validation not fully implemented for width mismatches"
-        )
+        toon = """items[2]{id,name}:
+  1,Alice
+  2"""  # Missing name
+        with pytest.raises(ValueError):
+            toons.loads(toon)
 
     def test_missing_colon_error(self):
         """Section 14.2: Missing colon MUST error"""
-        # Parser is lenient with this - skipping
-        pytest.skip("Parser is lenient with missing colons")
+        # Note: Single line "key value" is a valid primitive string per Section 5
+        # We use multi-line to force object parsing
+        with pytest.raises(ValueError):
+            toons.loads("key: value\nkey2 value")
 
     def test_invalid_escape_error(self):
         """Section 14.2: Invalid escape MUST error"""
         with pytest.raises(ValueError):  # Any ValueError is fine
             toons.loads(r'text: "bad\xescape"')
+
+    def test_indentation_modulo_check(self):
+        """Section 14.3: Leading spaces must be multiple of indentSize"""
+        # Establish indent=2 then violate it
+        toon = """
+parent:
+  child1: 1
+   child2: 2
+"""
+        with pytest.raises(ValueError, match="Indentation"):
+            toons.loads(toon)
+
+    def test_indentation_no_tabs(self):
+        """Section 14.3: Tabs not allowed in indentation"""
+        toon = "parent:\n\tchild: 1"
+        with pytest.raises(ValueError, match="Tabs"):
+            toons.loads(toon)
+
+    def test_blank_lines_in_arrays(self):
+        """Section 14.4: Blank lines inside arrays must error"""
+        toon = """
+items[2]:
+  - 1
+
+  - 2
+"""
+        with pytest.raises(ValueError, match="Blank line"):
+            toons.loads(toon)
+
+    def test_blank_lines_in_tabular(self):
+        """Section 14.4: Blank lines inside tabular rows must error"""
+        toon = """
+items[2]{id}:
+  1
+
+  2
+"""
+        with pytest.raises(ValueError, match="Blank line"):
+            toons.loads(toon)
 
 
 class TestSection15Security:

@@ -49,8 +49,8 @@ pub fn serialize(py: Python, obj: &Bound<'_, PyAny>, indent: usize) -> PyResult<
 /// - Header parsing with delimiter detection
 /// - Tabular array reconstruction
 /// - Strict validation in strict mode
-pub fn deserialize(py: Python, input: &str) -> PyResult<Py<PyAny>> {
-    let mut parser = Parser::new(input);
+pub fn deserialize(py: Python, input: &str, strict: bool) -> PyResult<Py<PyAny>> {
+    let mut parser = Parser::new(input, strict);
     parser.parse(py)
 }
 
@@ -772,15 +772,17 @@ struct Parser<'a> {
     lines: Vec<&'a str>,
     pos: usize,
     indent_size: usize,
+    strict: bool,
 }
 
 impl<'a> Parser<'a> {
-    fn new(input: &'a str) -> Self {
+    fn new(input: &'a str, strict: bool) -> Self {
         let lines: Vec<&str> = input.lines().collect();
         Parser {
             lines,
             pos: 0,
             indent_size: 0,
+            strict,
         }
     }
 
@@ -797,6 +799,30 @@ impl<'a> Parser<'a> {
         }
         // Default to 2 if no indented lines found
         self.indent_size = 2;
+    }
+
+    fn validate_indentation(&self, line: &str) -> PyResult<()> {
+        if !self.strict {
+            return Ok(());
+        }
+
+        let indent_len = line.len() - line.trim_start().len();
+        let indent_part = &line[..indent_len];
+
+        if indent_part.contains('\t') {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "TOON parse error: Tabs are not allowed in indentation",
+            ));
+        }
+
+        if self.indent_size > 0 && indent_len % self.indent_size != 0 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "TOON parse error: Indentation {} is not a multiple of indent size {}",
+                indent_len, self.indent_size
+            )));
+        }
+
+        Ok(())
     }
 
     fn parse(&mut self, py: Python) -> PyResult<Py<PyAny>> {
@@ -816,6 +842,7 @@ impl<'a> Parser<'a> {
         }
 
         let first_line = self.lines[self.pos];
+        self.validate_indentation(first_line)?;
         let first_line_trimmed = first_line.trim();
 
         // Check if it's a root array header - can be [N]: or [N]{fields}:
@@ -850,10 +877,10 @@ impl<'a> Parser<'a> {
                 let after_colon = &header_trimmed[colon_pos + 2..].trim();
                 if !after_colon.is_empty() {
                     // Inline primitive array (values on same line)
-                    self.parse_inline_array(py, after_colon, delimiter)
+                    self.parse_inline_array(py, after_colon, delimiter, length)
                 } else {
                     // Expanded list array (values on following lines)
-                    self.parse_expanded_array(py, length, delimiter, 1)
+                    self.parse_expanded_array(py, length, 1)
                 }
             } else {
                 // Malformed
@@ -869,6 +896,7 @@ impl<'a> Parser<'a> {
 
         while self.pos < self.lines.len() {
             let line = self.lines[self.pos];
+            self.validate_indentation(line)?;
             let line_depth = self.get_depth(line);
 
             if line_depth < depth {
@@ -930,7 +958,11 @@ impl<'a> Parser<'a> {
                     dict.set_item(key, value)?;
                 }
             } else {
-                self.pos += 1;
+                // Missing colon error (Section 14.2)
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "TOON parse error: Missing colon in line: {}",
+                    line_trimmed
+                )));
             }
         }
 
@@ -958,10 +990,10 @@ impl<'a> Parser<'a> {
                 if !after_colon.is_empty() {
                     // Inline primitive array (values on same line)
                     // Don't advance position - already done above
-                    self.parse_inline_array(py, after_colon, delimiter)
+                    self.parse_inline_array(py, after_colon, delimiter, length)
                 } else {
                     // Expanded list array (values on following lines)
-                    self.parse_expanded_array(py, length, delimiter, depth + 1)
+                    self.parse_expanded_array(py, length, depth + 1)
                 }
             } else {
                 // Malformed
@@ -1050,6 +1082,19 @@ impl<'a> Parser<'a> {
 
         while self.pos < self.lines.len() {
             let line = self.lines[self.pos];
+            let line_trimmed = line.trim();
+
+            if line_trimmed.is_empty() {
+                if self.strict {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "TOON parse error: Blank line inside array",
+                    ));
+                }
+                self.pos += 1;
+                continue;
+            }
+
+            self.validate_indentation(line)?;
             let line_depth = self.get_depth(line);
 
             if line_depth < expected_depth {
@@ -1057,12 +1102,6 @@ impl<'a> Parser<'a> {
             }
 
             if line_depth > expected_depth {
-                self.pos += 1;
-                continue;
-            }
-
-            let line_trimmed = line.trim();
-            if line_trimmed.is_empty() {
                 self.pos += 1;
                 continue;
             }
@@ -1075,6 +1114,16 @@ impl<'a> Parser<'a> {
 
             // Parse row
             let values = self.split_by_delimiter(line_trimmed, delimiter);
+
+            // Strict mode: check width (Section 14.1)
+            if values.len() != fields.len() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "TOON parse error: Tabular row has {} values but header defines {} fields",
+                    values.len(),
+                    fields.len()
+                )));
+            }
+
             let dict = PyDict::new(py);
 
             for (i, field) in fields.iter().enumerate() {
@@ -1105,14 +1154,31 @@ impl<'a> Parser<'a> {
         py: Python,
         values_str: &str,
         delimiter: char,
+        length: usize,
     ) -> PyResult<Py<PyAny>> {
         let list = PyList::empty(py);
 
         if values_str.is_empty() {
+            if length > 0 {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                    "TOON parse error: Array declared length {} but found 0 elements",
+                    length
+                )));
+            }
             return Ok(list.into());
         }
 
         let values = self.split_by_delimiter(values_str, delimiter);
+
+        // Strict mode: check length (Section 14.1)
+        if length > 0 && values.len() != length {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "TOON parse error: Array declared length {} but found {} elements",
+                length,
+                values.len()
+            )));
+        }
+
         for value_str in values {
             let value = self.parse_primitive(py, value_str)?;
             list.append(value)?;
@@ -1125,13 +1191,25 @@ impl<'a> Parser<'a> {
         &mut self,
         py: Python,
         length: usize,
-        delimiter: char,
         expected_depth: usize,
     ) -> PyResult<Py<PyAny>> {
         let list = PyList::empty(py);
 
         while self.pos < self.lines.len() {
             let line = self.lines[self.pos];
+            let line_trimmed = line.trim();
+
+            if line_trimmed.is_empty() {
+                if self.strict {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "TOON parse error: Blank line inside array",
+                    ));
+                }
+                self.pos += 1;
+                continue;
+            }
+
+            self.validate_indentation(line)?;
             let line_depth = self.get_depth(line);
 
             if line_depth < expected_depth {
@@ -1139,12 +1217,6 @@ impl<'a> Parser<'a> {
             }
 
             if line_depth > expected_depth {
-                self.pos += 1;
-                continue;
-            }
-
-            let line_trimmed = line.trim();
-            if line_trimmed.is_empty() {
                 self.pos += 1;
                 continue;
             }
@@ -1159,10 +1231,16 @@ impl<'a> Parser<'a> {
 
             // Check if it's an inline array
             if item_str.starts_with('[') && item_str.contains("]:") {
+                // Parse header to get correct delimiter for nested array
+                let header_part = item_str.split("]:").next().unwrap();
+                let header_with_bracket = format!("{}]", header_part); // Reconstruct header for parsing
+                let (inner_len, inner_delim, _) = self.parse_header(&header_with_bracket)?;
+
                 let value = self.parse_inline_array(
                     py,
                     item_str.split("]: ").nth(1).unwrap_or(""),
-                    delimiter,
+                    inner_delim,
+                    inner_len,
                 )?;
                 list.append(value)?;
             } else if item_str.contains(':') {
@@ -1223,6 +1301,7 @@ impl<'a> Parser<'a> {
         // Parse remaining fields at depth +1
         while self.pos < self.lines.len() {
             let line = self.lines[self.pos];
+            self.validate_indentation(line)?;
             let line_depth = self.get_depth(line);
 
             if line_depth <= list_depth {
@@ -1285,6 +1364,15 @@ impl<'a> Parser<'a> {
             "true" => Ok(PyBool::new(py, true).to_owned().into()),
             "false" => Ok(PyBool::new(py, false).to_owned().into()),
             _ => {
+                // Check for forbidden leading zeros: 0 followed by digits
+                if trimmed.len() > 1
+                    && trimmed.starts_with('0')
+                    && trimmed.chars().nth(1).unwrap().is_ascii_digit()
+                {
+                    // Treat as string
+                    return Ok(PyString::new(py, trimmed).into());
+                }
+
                 // Try to parse as number
                 if let Ok(i) = trimmed.parse::<i64>() {
                     Ok(PyInt::new(py, i).into())

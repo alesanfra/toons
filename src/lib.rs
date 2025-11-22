@@ -69,6 +69,8 @@ mod toon;
 ///
 /// Args:
 ///     s: A string containing TOON formatted data
+///     strict: If True (default), enforce strict TOON v2.0 compliance.
+///             If False, allow some leniency (e.g. blank lines in arrays).
 ///
 /// Returns:
 ///     A Python object (dict, list, or primitive) decoded from the TOON string
@@ -82,8 +84,9 @@ mod toon;
 ///     >>> print(data)
 ///     {'name': 'Alice', 'age': 30}
 #[pyfunction]
-fn loads(py: Python, s: String) -> PyResult<Py<PyAny>> {
-    toon::deserialize(py, &s)
+#[pyo3(signature = (s, *, strict=true))]
+fn loads(py: Python, s: String, strict: bool) -> PyResult<Py<PyAny>> {
+    toon::deserialize(py, &s, strict)
 }
 
 /// Deserialize a TOON formatted file to a Python object.
@@ -93,6 +96,8 @@ fn loads(py: Python, s: String) -> PyResult<Py<PyAny>> {
 ///
 /// Args:
 ///     fp: A file-like object with a read() method returning a string
+///     strict: If True (default), enforce strict TOON v2.0 compliance.
+///             If False, allow some leniency (e.g. blank lines in arrays).
 ///
 /// Returns:
 ///     A Python object (dict, list, or primitive) decoded from the file
@@ -105,11 +110,12 @@ fn loads(py: Python, s: String) -> PyResult<Py<PyAny>> {
 ///     >>> with open('data.toon', 'r') as f:
 ///     ...     data = toons.load(f)
 #[pyfunction]
-fn load(py: Python, fp: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+#[pyo3(signature = (fp, *, strict=true))]
+fn load(py: Python, fp: &Bound<'_, PyAny>, strict: bool) -> PyResult<Py<PyAny>> {
     let read_method = fp.getattr("read")?;
     let content = read_method.call0()?;
     let content_str: String = content.extract()?;
-    toon::deserialize(py, &content_str)
+    toon::deserialize(py, &content_str, strict)
 }
 
 /// Serialize a Python object to a TOON formatted string.
