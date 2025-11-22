@@ -85,12 +85,12 @@ with open("data.toon", "r") as f:
 
 ## Documentation
 
-📖 **[Read the full documentation at toons.readthedocs.io](https://toons.readthedocs.io/en/latest/)**
+📖 **[Read the full documentation at toons.readthedocs.io](https://toons.readthedocs.io/en/stable/)**
 
-- 🚀 **[Getting Started](https://toons.readthedocs.io/en/latest/getting-started/)** - Installation and first steps
-- 💡 **[Examples](https://toons.readthedocs.io/en/latest/examples/)** - Practical usage examples
-- 📚 **[API Reference](https://toons.readthedocs.io/en/latest/api-reference/)** - Complete API documentation
-- 📋 **[TOON Specification](https://toons.readthedocs.io/en/latest/specification/)** - Format specification v2.0
+- 🚀 **[Getting Started](https://toons.readthedocs.io/en/stable/getting-started/)** - Installation and first steps
+- 💡 **[Examples](https://toons.readthedocs.io/en/stable/examples/)** - Practical usage examples
+- 📚 **[API Reference](https://toons.readthedocs.io/en/stable/api-reference/)** - Complete API documentation
+- 📋 **[TOON Specification](https://toons.readthedocs.io/en/stable/specification/)** - Format specification v2.0
 
 ## Development
 
@@ -109,13 +109,13 @@ maturin develop
 pytest
 ```
 
-See the [Development Guide](https://toons.readthedocs.io/en/latest/development/) for more details.
+See the [Development Guide](https://toons.readthedocs.io/en/stable/development/) for more details.
 
 ## Contributing
 
 Contributions are welcome! Please follow [Conventional Commits](https://www.conventionalcommits.org/) and run tests before submitting.
 
-See [Contributing Guide](https://toons.readthedocs.io/en/latest/contributing/) for details.
+See [Contributing Guide](https://toons.readthedocs.io/en/stable/contributing/) for details.
 
 ## License
 
