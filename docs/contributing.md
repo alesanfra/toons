@@ -208,7 +208,7 @@ Update documentation for any user-facing changes:
 
 - **API changes**: Update `docs/api-reference.md`
 - **New features**: Add examples to `docs/examples.md`
-- **Usage changes**: Update `docs/getting-started.md` or `docs/quick-start.md`
+- **Usage changes**: Update `docs/getting-started.md`
 - **README**: Keep the main README concise, link to full docs
 
 ### Pull Request Process
@@ -285,7 +285,7 @@ Found a bug? Please create an issue with:
 
 Example:
 
-```markdown
+````markdown
 ## Bug: loads() fails on empty tabular arrays
 
 ### Steps to Reproduce
@@ -304,7 +304,7 @@ Raises `ValueError: Invalid TOON format`
 - TOONS version: 0.1.2
 - Python version: 3.10.5
 - OS: macOS 14.0
-```
+````
 
 ### Feature Requests
 

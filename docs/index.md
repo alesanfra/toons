@@ -38,12 +38,12 @@ print(toons.dumps(data))
 
 The TOON format is significantly more compact than JSON, especially for arrays and nested structures:
 
-**JSON (146 characters, ~37 tokens):**
+**JSON (69 characters, ~26 tokens):**
 ```json
 {"users": [{"name": "Alice", "age": 25}, {"name": "Bob", "age": 30}]}
 ```
 
-**TOON (47 characters, ~17 tokens):**
+**TOON (39 characters, ~16 tokens):**
 ```
 users[2]{name,age}:
   Alice,25
@@ -69,7 +69,7 @@ The library is fully implemented in Rust with a custom parser and serializer, us
 
 ## Next Steps
 
-- [Installation & Quick Start](getting-started.md) - Get started with TOONS
+- [Installation & Getting Started](getting-started.md) - Get started with TOONS
 - [Examples](examples.md) - See practical usage examples
 - [API Reference](api-reference.md) - Complete API documentation
 - [TOON Specification](specification.md) - Learn about the TOON format

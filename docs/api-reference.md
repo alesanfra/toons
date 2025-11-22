@@ -10,18 +10,19 @@ The `toons` module provides a JSON-like API for working with TOON format data.
 
 ## Functions
 
-### `loads(s)`
+### `loads(s, *, strict=True)`
 
 Parse a TOON-formatted string and return the corresponding Python object.
 
 **Signature:**
 ```python
-def loads(s: str) -> Any
+def loads(s: str, *, strict: bool = True) -> Any
 ```
 
 **Parameters:**
 
 - `s` (`str`): TOON-formatted string to parse
+- `strict` (`bool`, optional): If `True` (default), enforce strict TOON v2.0 compliance. If `False`, allow some leniency (e.g., blank lines in arrays, indentation mismatches).
 
 **Returns:**
 
@@ -40,11 +41,21 @@ import toons
 data = toons.loads("name: Alice\nage: 30")
 print(data)  # {'name': 'Alice', 'age': 30}
 
+# Strict mode (default) - raises error on blank lines in arrays
+try:
+    toons.loads("items[2]:\n  - 1\n\n  - 2")
+except ValueError:
+    print("Strict mode error")
+
+# Non-strict mode - allows blank lines
+data = toons.loads("items[2]:\n  - 1\n\n  - 2", strict=False)
+
 # Array with count notation
 data = toons.loads("tags[3]: python,rust,toon")
 print(data)  # {'tags': ['python', 'rust', 'toon']}
 
 # Tabular format
+
 toon_str = """
 users[2]{name,age}:
   Alice,30
@@ -66,18 +77,19 @@ except ValueError as e:
 
 ---
 
-### `load(fp)`
+### `load(fp, *, strict=True)`
 
 Parse TOON data from a file object and return the corresponding Python object.
 
 **Signature:**
 ```python
-def load(fp: IO[str]) -> Any
+def load(fp: IO[str], *, strict: bool = True) -> Any
 ```
 
 **Parameters:**
 
 - `fp`: File-like object supporting `.read()` method
+- `strict` (`bool`, optional): If `True` (default), enforce strict TOON v2.0 compliance. If `False`, allow some leniency.
 
 **Returns:**
 
@@ -304,8 +316,8 @@ TOONS provides basic type hints:
 ```python
 from typing import Any, IO
 
-def loads(s: str) -> Any: ...
-def load(fp: IO[str]) -> Any: ...
+def loads(s: str, *, strict: bool = True) -> Any: ...
+def load(fp: IO[str], *, strict: bool = True) -> Any: ...
 def dumps(obj: Any) -> str: ...
 def dump(obj: Any, fp: IO[str]) -> None: ...
 ```

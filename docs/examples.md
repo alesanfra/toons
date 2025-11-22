@@ -364,6 +364,32 @@ result = safe_parse_toon("invalid: [syntax")
 print(result)  # None (with error message)
 ```
 
+### Strict Mode
+
+By default, TOONS enforces strict compliance with the v2.0 specification. You can disable this for lenient parsing of slightly malformed data (e.g., blank lines in arrays).
+
+```python
+import toons
+
+# Malformed TOON (blank line in array is invalid in strict mode)
+toon_str = """
+items[2]:
+  - 1
+
+  - 2
+"""
+
+# Strict mode (default) - raises ValueError
+try:
+    toons.loads(toon_str)
+except ValueError as e:
+    print(f"Strict error: {e}")
+
+# Non-strict mode - allows the blank line
+data = toons.loads(toon_str, strict=False)
+print(data)  # {'items': [1, 2]}
+```
+
 ### Handling Serialization Errors
 
 ```python
