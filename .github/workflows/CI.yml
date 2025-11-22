@@ -53,6 +53,13 @@ jobs:
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
+      - name: Run tests
+        if: ${{ matrix.platform.target == 'x86_64' }}
+        shell: bash
+        run: |
+          pip install -r requirements-dev.txt
+          pip install toons --no-index --find-links dist --force-reinstall
+          pytest
 
   musllinux:
     runs-on: ${{ matrix.platform.runner }}
@@ -111,6 +118,12 @@ jobs:
         with:
           name: wheels-windows-${{ matrix.platform.target }}
           path: dist
+      - name: Run tests
+        shell: bash
+        run: |
+          pip install -r requirements-dev.txt
+          pip install toons --no-index --find-links dist --force-reinstall
+          pytest
 
   macos:
     runs-on: ${{ matrix.platform.runner }}
@@ -137,6 +150,12 @@ jobs:
         with:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
+      - name: Run tests
+        shell: bash
+        run: |
+          pip install -r requirements-dev.txt
+          pip install toons --no-index --find-links dist --force-reinstall
+          pytest
 
   sdist:
     runs-on: ubuntu-latest

@@ -492,6 +492,5 @@ compare_formats({"users": users})
 ## See Also
 
 - [API Reference](api-reference.md) - Complete API documentation
-- [Quick Start](quick-start.md) - Get started quickly
 - [Data Types](data-types.md) - Supported data types
 - [Development](development.md) - Contributing examples
