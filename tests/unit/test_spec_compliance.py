@@ -75,8 +75,16 @@ class TestSection4DecodingInterpretation:
         assert toons.loads("val: 05") == {"val": "05"}
         # "007" -> string "007"
         assert toons.loads("val: 007") == {"val": "007"}
-        # "0.5" is valid number
+        # "-05" -> string "-05" (v3.0)
+        assert toons.loads("val: -05") == {"val": "-05"}
+        # "-001" -> string "-001" (v3.0)
+        assert toons.loads("val: -001") == {"val": "-001"}
+
+        # Valid numbers
         assert toons.loads("val: 0.5") == {"val": 0.5}
+        assert toons.loads("val: -0.5") == {"val": -0.5}
+        assert toons.loads("val: 0e1") == {"val": 0.0}
+        assert toons.loads("val: -0e1") == {"val": -0.0}
 
 
 class TestSection5RootForm:
@@ -334,6 +342,43 @@ class TestSection10ObjectsAsListItems:
         assert "1,Alice" in result
         assert "2,Bob" in result
 
+    def test_tabular_array_in_list_item(self):
+        """
+        Section 10: List-item object with tabular array as first field.
+        Encoders MUST emit tabular header on hyphen line, rows at depth +2.
+        """
+        data = {
+            "items": [
+                {
+                    "users": [
+                        {"id": 1, "name": "Ada"},
+                        {"id": 2, "name": "Bob"},
+                    ],
+                    "status": "active",
+                }
+            ]
+        }
+
+        encoded = toons.dumps(data)
+        lines = encoded.strip().split("\n")
+
+        # Verify structure
+        # items[1]:
+        #   - users[2]{id,name}:
+        #       1,Ada
+        #       2,Bob
+        #     status: active
+
+        assert "items[1]:" in lines[0]
+        assert "  - users[2]{id,name}:" in lines[1]
+        assert lines[2].startswith("      ")  # 6 spaces (depth 3)
+        assert "1,Ada" in lines[2]
+        assert "status: active" in lines[4]
+
+        # Verify round-trip
+        decoded = toons.loads(encoded)
+        assert decoded == data
+
 
 class TestSection11Delimiters:
     """Section 11: Delimiters"""
@@ -368,6 +413,23 @@ items[2|]:
         result = toons.loads(toon)
         assert result == {"items": [["a", "b"], ["c", "d"]]}
 
+    def test_document_delimiter_quoting(self):
+        """
+        Section 11.1: Object field values (key: value) use the document delimiter
+        to decide delimiter-aware quoting.
+        """
+        # Value containing comma (default document delimiter) MUST be quoted
+        data = {"key": "value,with,comma"}
+        encoded = toons.dumps(data)
+        assert '"value,with,comma"' in encoded
+
+        # Value containing pipe SHOULD NOT be quoted if document delimiter is comma
+        # (and no other quoting rules apply)
+        data_pipe = {"key": "value|with|pipe"}
+        encoded_pipe = toons.dumps(data_pipe)
+        assert "value|with|pipe" in encoded_pipe
+        assert '"value|with|pipe"' not in encoded_pipe
+
 
 class TestSection12IndentationWhitespace:
     """Section 12: Indentation and Whitespace"""
@@ -384,9 +446,9 @@ class TestSection12IndentationWhitespace:
         """Section 12: No trailing spaces at end of lines"""
         result = toons.dumps({"key": "value", "nested": {"a": 1}})
         for line in result.split("\n"):
-            assert not line.endswith(
-                " "
-            ), f"Line has trailing space: {repr(line)}"
+            assert not line.endswith(" "), (
+                f"Line has trailing space: {repr(line)}"
+            )
 
     def test_no_trailing_newline(self):
         """Section 12: No trailing newline at end of document"""

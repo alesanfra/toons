@@ -96,9 +96,9 @@ class TestIndentParameter:
         for indent in [2, 4, 8]:
             serialized = toons.dumps(data, indent=indent)
             deserialized = toons.loads(serialized)
-            assert (
-                deserialized == data
-            ), f"Round-trip failed with indent={indent}"
+            assert deserialized == data, (
+                f"Round-trip failed with indent={indent}"
+            )
 
     def test_indent_keyword_only(self):
         """indent parameter is keyword-only"""

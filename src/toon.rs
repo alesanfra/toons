@@ -1,11 +1,11 @@
-//! Native TOON v2.0 implementation
+//! Native TOON v3.0 implementation
 //!
 //! This module implements TOON (Token-Oriented Object Notation) serialization
-//! and deserialization according to the TOON Specification v2.0 (2025-11-10).
+//! and deserialization according to the TOON Specification v3.0 (2025-11-24).
 //!
 //! Key features:
 //! - Direct Python object integration (no JSON intermediate representation)
-//! - Full TOON v2.0 spec compliance
+//! - Full TOON v3.0 spec compliance
 //! - Tabular format support for uniform arrays of objects
 //! - Configurable delimiters (comma, tab, pipe)
 //! - Strict mode parsing with validation
@@ -16,16 +16,16 @@ use std::fmt::Write as FmtWrite;
 
 /// Serialize a Python object to TOON format string.
 ///
-/// Implements TOON Specification v2.0 encoding rules:
+/// Implements TOON Specification v3.0 encoding rules:
 /// - Objects: key: value with proper indentation
 /// - Arrays: headers with inline or tabular format
 /// - Primitives: proper quoting and escaping
 /// - Tabular optimization for uniform object arrays
 pub fn serialize(py: Python, obj: &Bound<'_, PyAny>, indent: usize) -> PyResult<String> {
-    // Validate indent parameter (must be >= 2 per TOON spec v2.0)
+    // Validate indent parameter (must be >= 2 per TOON spec v3.0)
     if indent < 2 {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-            "indent must be >= 2 (TOON spec v2.0 uses 2-space indentation)",
+            "indent must be >= 2 (TOON spec v3.0 uses 2-space indentation)",
         ));
     }
 
@@ -215,7 +215,7 @@ fn serialize_object(
                         &nested_dict,
                         output,
                         depth + 1,
-                        delimiter,
+                        ',', // Use document delimiter per Section 11.1
                         false,
                         indent_size,
                     )?;
@@ -223,7 +223,8 @@ fn serialize_object(
             } else {
                 // Primitive: space after colon
                 output.push(' ');
-                serialize_value(py, &value, output, depth, delimiter, false, indent_size)?;
+                // Use document delimiter per Section 11.1
+                serialize_value(py, &value, output, depth, ',', false, indent_size)?;
             }
         }
     }
@@ -676,7 +677,20 @@ fn serialize_list_item_object(
     // Check if first value is an array
     if first_value.is_instance_of::<PyList>() {
         if let Ok(list) = first_value.cast::<PyList>() {
-            serialize_array_with_key(py, &first_key, &list, output, depth, delimiter, indent_size)?;
+            // Check if it's a tabular array (Section 10)
+            // If tabular, rows must be at depth + 2, so we pass depth + 1 to serialize_array_with_key
+            // (which adds another +1 for rows)
+            let is_tabular = detect_tabular(&list)?.is_some();
+            let target_depth = if is_tabular { depth + 1 } else { depth };
+            serialize_array_with_key(
+                py,
+                &first_key,
+                &list,
+                output,
+                target_depth,
+                delimiter,
+                indent_size,
+            )?;
         }
     } else {
         serialize_key(&first_key, output);
@@ -1275,25 +1289,43 @@ impl<'a> Parser<'a> {
         // Parse first field from hyphen line
         if let Some(item_content) = line_trimmed.strip_prefix("- ") {
             if let Some(colon_pos) = item_content.find(':') {
-                let key = self.parse_key(&item_content[..colon_pos])?;
+                let key_part = &item_content[..colon_pos];
                 let value_part = item_content[colon_pos + 1..].trim();
 
-                self.pos += 1;
+                // Check if key contains array header (e.g., key[N] or key[N]{fields})
+                if key_part.contains('[') && key_part.contains(']') {
+                    // Array as object field on hyphen line
+                    // Section 10: Tabular rows MUST appear at depth +2
+                    // parse_field_array expects depth of the field.
+                    // If we pass list_depth + 1, it expects rows at list_depth + 2.
+                    // This matches the spec for tabular arrays.
+                    let value = self.parse_field_array(py, item_content, list_depth + 1)?;
 
-                if value_part.is_empty() {
-                    // Nested or subsequent fields
-                    if self.pos < self.lines.len() {
-                        let next_depth = self.get_depth(self.lines[self.pos]);
-                        if next_depth > list_depth + 1 {
-                            // Nested object
-                            let value = self.parse_object(py, list_depth + 2)?;
-                            dict.set_item(key, value)?;
-                        }
-                    }
-                } else {
-                    // Primitive value
-                    let value = self.parse_primitive(py, value_part)?;
+                    // Extract key name before '['
+                    let key_name = key_part.split('[').next().unwrap();
+                    let key = self.parse_key(key_name)?;
                     dict.set_item(key, value)?;
+
+                    // parse_field_array has already advanced self.pos
+                } else {
+                    let key = self.parse_key(key_part)?;
+                    self.pos += 1;
+
+                    if value_part.is_empty() {
+                        // Nested or subsequent fields
+                        if self.pos < self.lines.len() {
+                            let next_depth = self.get_depth(self.lines[self.pos]);
+                            if next_depth > list_depth + 1 {
+                                // Nested object
+                                let value = self.parse_object(py, list_depth + 2)?;
+                                dict.set_item(key, value)?;
+                            }
+                        }
+                    } else {
+                        // Primitive value
+                        let value = self.parse_primitive(py, value_part)?;
+                        dict.set_item(key, value)?;
+                    }
                 }
             }
         }
@@ -1365,9 +1397,17 @@ impl<'a> Parser<'a> {
             "false" => Ok(PyBool::new(py, false).to_owned().into()),
             _ => {
                 // Check for forbidden leading zeros: 0 followed by digits
-                if trimmed.len() > 1
-                    && trimmed.starts_with('0')
-                    && trimmed.chars().nth(1).unwrap().is_ascii_digit()
+                // Section 4: "05", "0001", "-05" are strings.
+                // "0.5", "0e1", "-0.5" are numbers.
+                let check_s = if trimmed.starts_with('-') {
+                    &trimmed[1..]
+                } else {
+                    trimmed
+                };
+
+                if check_s.len() > 1
+                    && check_s.starts_with('0')
+                    && check_s.chars().nth(1).unwrap().is_ascii_digit()
                 {
                     // Treat as string
                     return Ok(PyString::new(py, trimmed).into());

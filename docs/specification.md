@@ -2,9 +2,9 @@
 
 ## Token-Oriented Object Notation
 
-**Version:** 2.0
+**Version:** 3.0
 
-**Date:** 2025-11-10
+**Date:** 2025-11-24
 
 **Status:** Working Draft
 
@@ -20,7 +20,7 @@ Token-Oriented Object Notation (TOON) is a line-oriented, indentation-based text
 
 ## Status of This Document
 
-This document is a Working Draft v2.0 and may be updated, replaced, or obsoleted. Implementers should monitor the canonical repository at https://github.com/toon-format/spec for changes.
+This document is a Working Draft v3.0 and may be updated, replaced, or obsoleted. Implementers should monitor the canonical repository at https://github.com/toon-format/spec for changes.
 
 This specification is stable for implementation but not yet finalized. Breaking changes may occur in future major versions.
 
@@ -217,7 +217,7 @@ Implementations that fail to conform to any MUST or REQUIRED level requirement a
   - Encoders SHOULD provide an option to choose lossless stringification for out-of-range numbers.
 - Numbers (decoding):
   - Decoders MUST accept decimal and exponent forms on input (e.g., 42, -3.14, 1e-6, -1E+9).
-  - Decoders MUST treat tokens with forbidden leading zeros (e.g., "05", "0001") as strings, not numbers.
+  - Decoders MUST treat tokens with forbidden leading zeros in the integer part (e.g., `"05"`, `"0001"`, `"-05"`, `"-0001"`) as strings, not numbers. This rule does **not** apply to a single zero integer part followed by a fractional or exponent part (e.g., `0.5`, `0e1`, `-0.5`, `-0e1`), which are valid numbers.
   - If a decoded numeric token is not representable in the host's default numeric type without loss, implementations MAY:
     - Return a higher-precision numeric type (e.g., arbitrary-precision integer or decimal), OR
     - Return a string, OR
@@ -227,12 +227,12 @@ Implementations that fail to conform to any MUST or REQUIRED level requirement a
 
 ## 3. Encoding Normalization (Reference Encoder)
 
-Encoders MUST normalize non-JSON values to the JSON data model before encoding:
+Encoders MUST normalize non-JSON values to the JSON data model before encoding. The mapping from host-specific types to JSON model is implementation-defined and MUST be documented.
 
 - Number:
   - Finite → number (canonical decimal form per Section 2). -0 → 0.
   - NaN, +Infinity, -Infinity → null.
-- Non-JSON types MUST be normalized to the JSON data model (object, array, string, number, boolean, or null) before encoding. The mapping from host-specific types to JSON model is implementation-defined and MUST be documented.
+- Implementations MAY honor host-language–specific serialization hooks (for example, a `toJSON()` method in JavaScript or an equivalent mechanism) as part of host-type normalization. When supported, such hooks SHOULD be applied before other host-type mappings and their behavior MUST be documented by the implementation.
 - Examples of host-type normalization (non-normative):
   - Date/time objects → ISO 8601 string representation.
   - Set-like collections → array.
@@ -384,9 +384,9 @@ A string value MUST be quoted if any of the following is true:
 - It contains a colon (:), double quote ("), or backslash (\).
 - It contains brackets or braces ([, ], {, }).
 - It contains control characters: newline, carriage return, or tab.
-- It contains the relevant delimiter:
-  - Inside array scope: the active delimiter (Section 1).
-  - Outside array scope: the document delimiter (Section 1).
+- It contains the relevant delimiter (see §11 for complete delimiter rules):
+  - For inline array values and tabular row cells: the active delimiter from the nearest array header.
+  - For object field values (key: value): the document delimiter, even when the object is within an array's scope.
 - It equals "-" or starts with "-" (any hyphen at position 0).
 
 Otherwise, the string MAY be emitted without quotes. Unicode, emoji, and strings with internal (non-leading/trailing) spaces are safe unquoted provided they do not violate the conditions.
@@ -403,12 +403,10 @@ Encoders MAY perform key folding when enabled (see §13.4 for complete folding r
 
 ### 7.4 Decoding Rules for Strings and Keys (Decoding)
 
-- Quoted strings and keys MUST be unescaped per Section 7.1; any other escape MUST error. Quoted primitives remain strings.
-- Unquoted values:
-  - true/false/null → boolean/null
-  - Numeric tokens → numbers (with the leading-zero rule in Section 4)
-  - Otherwise → strings
-- Keys (quoted or unquoted) MUST be followed by ":"; missing colon MUST error.
+Decoding of value tokens follows §4 (unquoted type inference, quoted strings, numeric rules). This section adds key-specific requirements:
+
+- Quoted keys MUST be unescaped per Section 7.1; any other escape MUST error.
+- Keys (quoted or unquoted) MUST be followed by ":"; missing colon MUST error (see also §14.2).
 
 ## 8. Objects
 
@@ -421,7 +419,6 @@ Encoders MAY perform key folding when enabled (see §13.4 for complete folding r
 - Decoding:
   - A line "key:" with nothing after the colon at depth d opens an object; subsequent lines at depth > d belong to that object until the depth decreases to ≤ d.
   - Lines "key: value" at the same depth are sibling fields.
-  - Missing colon after a key MUST error.
 
 ## 9. Arrays
 
@@ -474,6 +471,7 @@ Decoding:
     - Delimiter before colon → row.
     - Colon before delimiter → key-value line (end of rows).
   - If a line has an unquoted colon but no unquoted active delimiter → key-value line (end of rows).
+- When a tabular array appears as the first field of a list-item object, indentation is governed by Section 10.
 
 ### 9.4 Mixed / Non-Uniform Arrays — Expanded List
 
@@ -499,20 +497,18 @@ Decoding:
 For an object appearing as a list item:
 
 - Empty object list item: a single "-" at the list-item indentation level.
-- First field on the hyphen line:
-  - Primitive: - key: value
-  - Primitive array: - key[M<delim?>]: v1<delim>…
-  - Tabular array: - key[N<delim?>]{fields}:
-    - Followed by tabular rows at depth +1 (relative to the hyphen line).
-  - Non-uniform array: - key[N<delim?>]:
-    - Followed by list items at depth +1.
-  - Object: - key:
-    - Nested object fields appear at depth +2 (i.e., one deeper than subsequent sibling fields of the same list item).
-- Remaining fields of the same object appear at depth +1 under the hyphen line in encounter order, using normal object field rules.
-
-Decoding:
-- The first field is parsed from the hyphen line. If it is a nested object (- key:), nested fields are at +2 relative to the hyphen line; subsequent fields of the same list item are at +1.
-- If the first field is a tabular header on the hyphen line, its rows are at +1; subsequent sibling fields continue at +1 after the rows.
+- Encoding (normative):
+  - When a list-item object has a tabular array (Section 9.3) as its first field in encounter order, encoders MUST emit the tabular header on the hyphen line:
+    - The hyphen and tabular header appear on the same line at the list-item depth: - key[N<delim?>]{fields}:
+    - Tabular rows MUST appear at depth +2 (relative to the hyphen line).
+    - All other fields of the same object MUST appear at depth +1 under the hyphen line, in encounter order, using normal object field rules (Section 8).
+    - Encoders MUST NOT emit tabular rows at depth +1 or sibling fields at the same depth as rows when the first field is a tabular array.
+  - For all other cases (first field is not a tabular array), encoders SHOULD place the first field on the hyphen line. A bare hyphen on its own line is used only for empty list-item objects.
+- Decoding (normative):
+  - When a decoder encounters a list-item line of the form - key[N<delim?>]{fields}: at depth d, it MUST treat this as the start of a tabular array field named key in the list-item object.
+  - Lines at depth d+2 that conform to tabular row syntax (Section 9.3) are rows of that tabular array.
+  - Lines at depth d+1 are additional fields of the same list-item object; the presence of a line at depth d+1 after rows terminates the rows.
+  - All other object-as-list-item patterns (bare hyphen, first field on hyphen line for non-tabular values) are decoded according to the general rules in Section 8 and Section 9.
 
 ## 11. Delimiters
 
@@ -520,19 +516,25 @@ Decoding:
   - Comma (default): header omits the delimiter symbol.
   - Tab: header includes HTAB inside brackets and braces (e.g., [N<TAB>], {a<TAB>b}); rows/inline arrays use tabs.
   - Pipe: header includes "|" inside brackets and braces; rows/inline arrays use "|".
-- Document vs Active delimiter:
-  - Encoders select a document delimiter (option) that influences quoting for all object values (key: value) throughout the document.
-  - Inside an array header's scope, the active delimiter governs splitting and quoting only for inline arrays and tabular rows that the header introduces. Object values (key: value) follow document-delimiter quoting rules regardless of array scope.
-- Delimiter-aware quoting (encoding):
-  - Inline array values and tabular row cells: strings containing the active delimiter MUST be quoted to avoid splitting.
-  - Object values (key: value): encoders use the document delimiter to decide delimiter-aware quoting, regardless of whether the object appears within an array's scope.
-  - Strings containing non-active delimiters do not require quoting unless another quoting condition applies (Section 7.2).
-- Delimiter-aware parsing (decoding):
-  - Inline arrays and tabular rows MUST be split only on the active delimiter declared by the nearest array header.
+
+### 11.1 Encoding Rules (Normative for Encoders)
+
+- Document delimiter: Encoders select a document delimiter (option: comma, tab, pipe; default comma) that influences quoting for all object field values (key: value) throughout the document.
+- Active delimiter: Inside an array header's scope, the active delimiter governs quoting only for inline array values and tabular row cells.
+- Delimiter-aware quoting:
+  - Inline array values and tabular row cells: strings containing the active delimiter MUST be quoted.
+  - Object field values (key: value): encoders use the document delimiter to decide delimiter-aware quoting, regardless of whether the object appears within an array's scope.
+  - Strings containing non-active delimiters do not require quoting unless another condition applies (§7.2).
+
+### 11.2 Decoding Rules (Normative for Decoders)
+
+- Active delimiter: Decoders use only the active delimiter declared by the nearest array header to split inline arrays and tabular rows.
+- Delimiter-aware parsing:
+  - Inline arrays and tabular rows MUST be split only on the active delimiter.
   - Splitting MUST preserve empty tokens; surrounding spaces are trimmed, and empty tokens decode to the empty string.
-  - Strings containing the active delimiter MUST be quoted to avoid splitting; non-active delimiters MUST NOT cause splits.
   - Nested headers may change the active delimiter; decoding MUST use the delimiter declared by the nearest header.
-  - If the bracket declares tab or pipe, the same symbol MUST be used in the fields segment and for splitting all rows/values in that scope.
+  - If the bracket declares tab or pipe, the same symbol MUST be used in the fields segment and for splitting all rows/values in that scope (§6).
+- Object field values (key: value): Decoders parse the entire post-colon token as a single value; document delimiter is not a decoder concept.
 
 ## 12. Indentation and Whitespace
 
@@ -730,12 +732,14 @@ When strict mode is enabled (default), decoders MUST error on the following cond
 
 ### 14.3 Indentation Errors
 
+See §12 for indentation semantics. In strict mode, decoders MUST error on:
 - Leading spaces not a multiple of indentSize.
 - Any tab used in indentation (tabs allowed in quoted strings and as HTAB delimiter).
 
 ### 14.4 Structural Errors
 
-- Blank lines inside arrays/tabular rows.
+See §12 for blank line semantics. In strict mode, decoders MUST error on:
+- Blank lines inside arrays/tabular rows (between the first and last item/row).
 
 For root-form rules, including handling of empty documents, see §5.
 
@@ -894,7 +898,11 @@ This specification does not request IANA registration at this time, as the forma
 
 ### 18.2 Provisional Media Type
 
-The following provisional media type designation is RECOMMENDED for experimental implementations:
+Until IANA registration is completed, implementations SHOULD use:
+- Media type: `text/toon`
+- File extension: `.toon`
+
+Full designation details:
 
 Type name: text
 
@@ -989,10 +997,12 @@ Nested tabular inside a list item:
 ```
 items[1]:
   - users[2]{id,name}:
-    1,Ada
-    2,Bob
+      1,Ada
+      2,Bob
     status: active
 ```
+
+Note: When a list-item object has a tabular array as its first field, encoders emit the tabular header on the hyphen line with rows at depth +2 and other fields at depth +1. This is the canonical encoding for list-item objects whose first field is a tabular array.
 
 Delimiter variations:
 ```
@@ -1218,52 +1228,43 @@ Note: Host-type normalization tests (e.g., BigInt, Date, Set, Map) are language-
 
 ## Appendix D: Document Changelog (Informative)
 
+This appendix summarizes major changes between spec versions. For the complete changelog, see [`CHANGELOG.md`](./CHANGELOG.md) in the specification repository.
+
+### v3.0 (2025-11-24)
+
+- Standardized encoding for list-item objects whose first field is a tabular array (§10).
+
+### v2.1 (2025-11-23)
+
+- Tightened canonical encoding for objects as list items (§10): bare `-` for multi-field objects, compact `- key[N]{fields}:` only for single-field tabular arrays, to improve visual consistency and LLM readability.
+
 ### v2.0 (2025-11-10)
 
-- Breaking change: Length marker (`#`) prefix in array headers has been completely removed from the specification.
-- The `[#N]` format is no longer valid syntax. All array headers MUST use `[N]` format only.
-- Encoders MUST NOT emit `[#N]` format.
-- Decoders MUST NOT accept `[#N]` format (breaking change from v1.5).
-- Removed all references to length marker from terminology, grammar, conformance requirements, and parsing helpers.
+- Removed `[#N]` length-marker syntax from array headers; `[N]` is now the only valid form.
 
 ### v1.5 (2025-11-08)
 
-- Added optional key folding for encoders: `keyFolding='safe'` mode with `flattenDepth` control (§13.4).
-- Added optional path expansion for decoders: `expandPaths='safe'` mode with conflict resolution tied to existing `strict` option (§13.4).
-- Defined safe-mode requirements for folding: IdentifierSegment validation, no path separator in segments, collision avoidance, no quoting required (§7.3, §13.4).
-- Specified deep-merge semantics for expansion: recursive merge for objects; conflict policy (error in strict mode, LWW when strict=false) for non-objects (§13.4).
-- Added strict-mode error category for path expansion conflicts (§14.5).
-- Both features default to OFF; fully backward-compatible.
+- Added optional key folding (`keyFolding="safe"`) and path expansion (`expandPaths="safe"`) with deep-merge semantics and strict-mode conflict handling (§13.4, §14.5).
 
 ### v1.4 (2025-11-05)
 
-- Removed JavaScript-specific normalization details; replaced with language-agnostic requirements (Section 3).
-- Defined canonical number format for encoders and decoder acceptance rules (Section 2).
-- Added Appendix G with host-type normalization examples for Go, JavaScript, Python, and Rust.
-- Clarified non-strict mode tab handling as implementation-defined (Section 12).
-- Expanded regex notation for cross-language clarity (Section 7.3).
+- Generalized normalization and numeric canonicalization rules, and added host-type normalization guidance (Appendix G).
 
 ### v1.3 (2025-10-31)
 
-- Added numeric precision requirements: JavaScript implementations SHOULD use Number.toString() precision (15-17 digits), all implementations MUST preserve round-trip fidelity (Section 2).
-- Added RFC 5234 core rules (ALPHA, DIGIT, DQUOTE, HTAB, LF, SP) to ABNF grammar definitions (Section 6).
+- Added numeric precision guidance and ABNF core rules for headers and keys (§2, §6).
 
 ### v1.2 (2025-10-29)
 
-- Clarified delimiter scoping behavior between array headers.
-- Tightened strict-mode indentation requirements: leading spaces MUST be exact multiples of indentSize; tabs in indentation MUST error.
-- Defined blank-line and trailing-newline decoding behavior with explicit skipping rules outside arrays.
-- Clarified hyphen-based quoting: "-" or any string starting with "-" MUST be quoted.
-- Clarified BigInt normalization: values outside safe integer range are converted to quoted decimal strings.
-- Clarified row/key disambiguation: uses first unquoted delimiter vs colon position.
+- Tightened delimiter scoping, indentation, blank-line handling, hyphen-based quoting, BigInt normalization, and row/key disambiguation rules (§2, §9, §11-§12).
 
 ### v1.1 (2025-10-29)
 
-Added strict-mode rules, delimiter-aware parsing, and decoder options (indent, strict).
+- Introduced strict-mode validation, delimiter-aware parsing, and decoder options (indent, strict).
 
 ### v1.0 (2025-10-28)
 
-Initial encoding, normalization, and conformance rules.
+- Initial specification: encoding normalization, decoding interpretation, and conformance requirements.
 
 ## Appendix E: Acknowledgments and License
 
@@ -1334,6 +1335,7 @@ Collection Types:
 - `Map`: Convert to object using `String(key)` for keys and normalizing values recursively. Non-string keys are coerced to strings.
 
 Object Types:
+- Objects with a `toJSON()` method: Call `value.toJSON()` and then normalize the returned value recursively before encoding. This allows domain objects to override default normalization behavior in a controlled, deterministic way (similar to `JSON.stringify`). Implementations SHOULD guard against `toJSON()` returning the same object (to avoid infinite recursion) and MAY fall back to default normalization in that case.
 - Plain objects: Enumerate own enumerable string keys in encounter order; normalize values recursively.
 
 Non-Serializable Types:
