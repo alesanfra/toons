@@ -9,7 +9,7 @@ TOONS provides a Python interface that mirrors the API of Python's standard `jso
 - **🚀 Fast**: Implemented in Rust with PyO3 bindings for maximum performance
 - **📊 Token-Efficient**: 30-60% fewer tokens than JSON, ideal for LLM contexts
 - **🔄 Familiar API**: Mirrors Python's `json` module (`load`, `loads`, `dump`, `dumps`)
-- **✅ Spec Compliant**: Full support for TOON Specification v2.0
+- **✅ Spec Compliant**: Full support for TOON Specification v3.0
 - **🐍 Python Native**: Returns/accepts Python dict, list, str, int, float, bool, None
 - **📁 File & String**: Complete support for both file I/O and string operations
 
@@ -64,7 +64,7 @@ The library is fully implemented in Rust with a custom parser and serializer, us
 - High-performance parsing and serialization
 - Memory efficiency
 - Type safety
-- Full TOON Specification v2.0 compliance
+- Full TOON Specification v3.0 compliance
 - Complete control over implementation details
 
 ## Next Steps

@@ -1,7 +1,7 @@
 """
-TOON Specification v2.0 Compliance Test Suite
+TOON Specification v3.0 Compliance Test Suite
 
-This test suite validates compliance with the TOON Specification v2.0 (2025-11-10).
+This test suite validates compliance with the TOON Specification v3.0 (2025-11-24).
 Tests are organized by specification section for clear traceability.
 
 Test Coverage Summary:
@@ -271,7 +271,7 @@ class TestSection8Objects:
         result = toons.dumps({})
         assert result == ""
 
-        # loads("") should return an empty object per v2.0 Section 5
+        # loads("") should return an empty object per v3.0 Section 5
         assert toons.loads("") == {}
 
 

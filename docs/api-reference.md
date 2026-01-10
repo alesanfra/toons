@@ -22,7 +22,7 @@ def loads(s: str, *, strict: bool = True) -> Any
 **Parameters:**
 
 - `s` (`str`): TOON-formatted string to parse
-- `strict` (`bool`, optional): If `True` (default), enforce strict TOON v2.0 compliance. If `False`, allow some leniency (e.g., blank lines in arrays, indentation mismatches).
+- `strict` (`bool`, optional): If `True` (default), enforce strict TOON v3.0 compliance. If `False`, allow some leniency (e.g., blank lines in arrays, indentation mismatches).
 
 **Returns:**
 
@@ -89,7 +89,7 @@ def load(fp: IO[str], *, strict: bool = True) -> Any
 **Parameters:**
 
 - `fp`: File-like object supporting `.read()` method
-- `strict` (`bool`, optional): If `True` (default), enforce strict TOON v2.0 compliance. If `False`, allow some leniency.
+- `strict` (`bool`, optional): If `True` (default), enforce strict TOON v3.0 compliance. If `False`, allow some leniency.
 
 **Returns:**
 

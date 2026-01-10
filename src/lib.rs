@@ -7,8 +7,8 @@
 //!
 //! # Features
 //!
-//! - **Full TOON v2.0 Specification Compliance**: Implements all features
-//!   from the official TOON specification dated 2025-11-10
+//! - **Full TOON v3.0 Specification Compliance**: Implements all features
+//!   from the official TOON specification dated 2025-11-24
 //! - **Direct Python Integration**: No intermediate JSON representation
 //! - **Configurable Indentation**: Support for custom indent sizes (≥2 spaces)
 //! - **Smart Parser**: Automatic indentation detection when parsing
@@ -54,7 +54,7 @@
 //!
 //! # Specification
 //!
-//! This implementation follows TOON Specification v2.0 (2025-11-10).
+//! This implementation follows TOON Specification v3.0 (2025-11-24).
 //! For complete specification details, see:
 //! <https://github.com/johannschopplich/toon>
 
@@ -69,7 +69,7 @@ mod toon;
 ///
 /// Args:
 ///     s: A string containing TOON formatted data
-///     strict: If True (default), enforce strict TOON v2.0 compliance.
+///     strict: If True (default), enforce strict TOON v3.0 compliance.
 ///             If False, allow some leniency (e.g. blank lines in arrays).
 ///
 /// Returns:
@@ -96,7 +96,7 @@ fn loads(py: Python, s: String, strict: bool) -> PyResult<Py<PyAny>> {
 ///
 /// Args:
 ///     fp: A file-like object with a read() method returning a string
-///     strict: If True (default), enforce strict TOON v2.0 compliance.
+///     strict: If True (default), enforce strict TOON v3.0 compliance.
 ///             If False, allow some leniency (e.g. blank lines in arrays).
 ///
 /// Returns:
@@ -197,7 +197,7 @@ implementation with Python bindings for high-performance encoding
 and decoding of TOON data.
 
 Features:
-    - Full TOON v2.0 Specification Compliance
+    - Full TOON v3.0 Specification Compliance
     - Direct Python Integration (no JSON overhead)
     - Configurable Indentation (≥2 spaces)
     - Smart Parser with automatic indentation detection
@@ -214,7 +214,7 @@ Quick Start:
     >>> data = toons.loads(toon_str)
 
 Specification:
-    TOON Specification v2.0 (2025-11-10)
+    TOON Specification v3.0 (2025-11-24)
     https://github.com/johannschopplich/toon
 ",
     )?;

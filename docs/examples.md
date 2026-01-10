@@ -366,7 +366,7 @@ print(result)  # None (with error message)
 
 ### Strict Mode
 
-By default, TOONS enforces strict compliance with the v2.0 specification. You can disable this for lenient parsing of slightly malformed data (e.g., blank lines in arrays).
+By default, TOONS enforces strict compliance with the v3.0 specification. You can disable this for lenient parsing of slightly malformed data (e.g., blank lines in arrays).
 
 ```python
 import toons

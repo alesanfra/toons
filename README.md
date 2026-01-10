@@ -36,7 +36,7 @@ users[2]{name,age}:
 - 🚀 **Fast**: Rust implementation with PyO3 bindings
 - 📊 **Token-Efficient**: 30-60% fewer tokens than JSON
 - 🔄 **Familiar API**: Drop-in replacement for `json` module
-- ✅ **Spec Compliant**: Full TOON Specification v2.0 support
+- ✅ **Spec Compliant**: Full TOON Specification v3.0 support
 - 🐍 **Python Native**: Works with standard Python types
 
 ## Quick Start
@@ -90,7 +90,7 @@ with open("data.toon", "r") as f:
 - 🚀 **[Getting Started](https://toons.readthedocs.io/en/stable/getting-started/)** - Installation and first steps
 - 💡 **[Examples](https://toons.readthedocs.io/en/stable/examples/)** - Practical usage examples
 - 📚 **[API Reference](https://toons.readthedocs.io/en/stable/api-reference/)** - Complete API documentation
-- 📋 **[TOON Specification](https://toons.readthedocs.io/en/stable/specification/)** - Format specification v2.0
+- 📋 **[TOON Specification](https://toons.readthedocs.io/en/stable/specification/)** - Format specification v3.0
 
 ## Development
 

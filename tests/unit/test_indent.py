@@ -11,7 +11,7 @@ class TestIndentParameter:
     """Test suite for indent parameter"""
 
     def test_default_indent_is_two_spaces(self):
-        """Default indentation is 2 spaces (per TOON spec v2.0)"""
+        """Default indentation is 2 spaces (per TOON spec v3.0)"""
         data = {"parent": {"child": "value"}}
         result = toons.dumps(data)
         lines = result.split("\n")

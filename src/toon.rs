@@ -44,7 +44,7 @@ pub fn serialize(py: Python, obj: &Bound<'_, PyAny>, indent: usize) -> PyResult<
 
 /// Deserialize a TOON format string to a Python object.
 ///
-/// Implements TOON Specification v2.0 decoding rules:
+/// Implements TOON Specification v3.0 decoding rules:
 /// - Automatic root form detection (object/array/primitive)
 /// - Header parsing with delimiter detection
 /// - Tabular array reconstruction
@@ -75,7 +75,7 @@ fn serialize_value(
     } else if let Ok(i) = obj.extract::<i64>() {
         write!(output, "{}", i).unwrap();
     } else if let Ok(f) = obj.extract::<f64>() {
-        // TOON v2.0: normalize -0 to 0, no exponential notation
+        // TOON v3.0: normalize -0 to 0, no exponential notation
         if f == 0.0 {
             output.push('0');
         } else if f.is_finite() {
@@ -98,7 +98,7 @@ fn serialize_value(
     Ok(())
 }
 
-/// Serialize a string with proper quoting and escaping per TOON v2.0 Section 7
+/// Serialize a string with proper quoting and escaping per TOON v3.0 Section 7
 fn serialize_string(s: &str, output: &mut String, delimiter: char) {
     if needs_quoting(s, delimiter) {
         output.push('"');
@@ -118,7 +118,7 @@ fn serialize_string(s: &str, output: &mut String, delimiter: char) {
     }
 }
 
-/// Check if a string needs quoting per TOON v2.0 Section 7.2
+/// Check if a string needs quoting per TOON v3.0 Section 7.2
 fn needs_quoting(s: &str, delimiter: char) -> bool {
     if s.is_empty() {
         return true;
@@ -156,7 +156,7 @@ fn needs_quoting(s: &str, delimiter: char) -> bool {
     false
 }
 
-/// Check if string looks numeric per TOON v2.0 Section 7.2
+/// Check if string looks numeric per TOON v3.0 Section 7.2
 fn is_numeric_like(s: &str) -> bool {
     // Matches: -?\d+(\.\d+)?(e[+-]?\d+)? or 0\d+
     if s.chars().next().unwrap_or(' ').is_ascii_digit() {
@@ -170,7 +170,7 @@ fn is_numeric_like(s: &str) -> bool {
     s.parse::<f64>().is_ok()
 }
 
-/// Serialize an object (dict) per TOON v2.0 Section 8
+/// Serialize an object (dict) per TOON v3.0 Section 8
 fn serialize_object(
     py: Python,
     dict: &Bound<'_, PyDict>,
@@ -232,7 +232,7 @@ fn serialize_object(
     Ok(())
 }
 
-/// Serialize object key per TOON v2.0 Section 7.3
+/// Serialize object key per TOON v3.0 Section 7.3
 fn serialize_key(key: &str, output: &mut String) {
     // Key can be unquoted if matches: ^[A-Za-z_][\w.]*$
     if is_valid_unquoted_key(key) {
@@ -327,7 +327,7 @@ fn serialize_array_with_key(
     Ok(())
 }
 
-/// Serialize an array (list) per TOON v2.0 Section 9
+/// Serialize an array (list) per TOON v3.0 Section 9
 fn serialize_array(
     py: Python,
     list: &Bound<'_, PyList>,
@@ -843,7 +843,7 @@ impl<'a> Parser<'a> {
         // Auto-detect indentation size
         self.detect_indent_size();
 
-        // Root form detection per TOON Spec v2.0 Section 5
+        // Root form detection per TOON Spec v3.0 Section 5
 
         // Skip empty lines at start
         while self.pos < self.lines.len() && self.lines[self.pos].trim().is_empty() {
@@ -851,7 +851,7 @@ impl<'a> Parser<'a> {
         }
 
         if self.pos >= self.lines.len() {
-            // Empty document → empty object per TOON v2.0 Section 5
+            // Empty document → empty object per TOON v3.0 Section 5
             return Ok(PyDict::new(py).into());
         }
 
