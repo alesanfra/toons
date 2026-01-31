@@ -390,14 +390,24 @@ class TestSection11Delimiters:
 
     def test_tab_delimiter_encoding(self):
         """Section 11: Tab delimiter support"""
-        # Native implementation doesn't expose delimiter option yet,
-        # but should parse tab-delimited correctly
+        # Encode with tab delimiter
+        data = {"items": ["a", "b", "c"]}
+        result = toons.dumps(data, delimiter="\t")
+        assert result == "items[3\t]: a\tb\tc"
+
+        # Parse tab-delimited correctly
         toon = "items[3\t]: a\tb\tc"
         result = toons.loads(toon)
         assert result == {"items": ["a", "b", "c"]}
 
     def test_pipe_delimiter_encoding(self):
         """Section 11: Pipe delimiter support"""
+        # Encode with pipe delimiter
+        data = {"items": ["a", "b", "c"]}
+        result = toons.dumps(data, delimiter="|")
+        assert result == "items[3|]: a|b|c"
+
+        # Parse pipe-delimited correctly
         toon = "items[3|]: a|b|c"
         result = toons.loads(toon)
         assert result == {"items": ["a", "b", "c"]}
