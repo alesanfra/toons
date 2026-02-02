@@ -170,9 +170,9 @@ fn dumps(
     toon::serialize(
         py,
         obj,
-        indent,
         delimiter.chars().next().unwrap(),
-        key_folding,
+        indent,
+        key_folding.is_some(),
         flatten_depth,
     )
 }
@@ -212,9 +212,9 @@ fn dump(
     let toon_str = toon::serialize(
         py,
         obj,
-        indent,
         delimiter.chars().next().unwrap(),
-        key_folding,
+        indent,
+        key_folding.is_some(),
         flatten_depth,
     )?;
     let write_method = fp.getattr("write")?;
