@@ -167,9 +167,14 @@ fn dumps(
     key_folding: Option<&str>,
     flatten_depth: Option<usize>,
 ) -> PyResult<String> {
-    // key_folding and flatten_depth are accepted but not yet implemented
-    // Default behavior is no key folding (key_folding="off")
-    toon::serialize(py, obj, indent, delimiter.chars().next().unwrap())
+    toon::serialize(
+        py,
+        obj,
+        indent,
+        delimiter.chars().next().unwrap(),
+        key_folding,
+        flatten_depth,
+    )
 }
 
 /// Serialize a Python object to a TOON formatted file.
@@ -204,8 +209,14 @@ fn dump(
     key_folding: Option<&str>,
     flatten_depth: Option<usize>,
 ) -> PyResult<()> {
-    // key_folding and flatten_depth are accepted but not yet implemented
-    let toon_str = toon::serialize(py, obj, indent, delimiter.chars().next().unwrap())?;
+    let toon_str = toon::serialize(
+        py,
+        obj,
+        indent,
+        delimiter.chars().next().unwrap(),
+        key_folding,
+        flatten_depth,
+    )?;
     let write_method = fp.getattr("write")?;
     write_method.call1((toon_str,))?;
     Ok(())

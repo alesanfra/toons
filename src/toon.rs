@@ -12,7 +12,24 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
+use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
+
+/// Serialization context for key folding options
+#[derive(Clone)]
+struct SerializationContext {
+    key_folding: bool,
+    flatten_depth: usize,
+}
+
+impl SerializationContext {
+    fn new(key_folding: bool, flatten_depth: Option<usize>) -> Self {
+        Self {
+            key_folding,
+            flatten_depth: flatten_depth.unwrap_or(usize::MAX),
+        }
+    }
+}
 
 /// Serialize a Python object to TOON format string.
 ///
@@ -26,6 +43,8 @@ pub fn serialize(
     obj: &Bound<'_, PyAny>,
     indent: usize,
     delimiter: char,
+    key_folding: Option<&str>,
+    flatten_depth: Option<usize>,
 ) -> PyResult<String> {
     // Validate indent parameter (must be >= 2 per TOON spec v3.0)
     if indent < 2 {
@@ -41,8 +60,12 @@ pub fn serialize(
         }
     }
 
+    // Create serialization context
+    let key_folding_enabled = key_folding == Some("safe");
+    let ctx = SerializationContext::new(key_folding_enabled, flatten_depth);
+
     let mut output = String::new();
-    serialize_value(py, obj, &mut output, 0, delimiter, true, indent)?;
+    serialize_value(py, obj, &mut output, 0, delimiter, true, indent, &ctx)?;
 
     Ok(output)
 }
@@ -78,6 +101,7 @@ fn serialize_value(
     delimiter: char,
     is_root: bool,
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     if obj.is_none() {
         output.push_str("null");
@@ -99,9 +123,27 @@ fn serialize_value(
     } else if let Ok(s) = obj.extract::<String>() {
         serialize_string(&s, output, delimiter);
     } else if let Ok(list) = obj.cast::<PyList>() {
-        serialize_array(py, &list, output, depth, delimiter, is_root, indent_size)?;
+        serialize_array(
+            py,
+            &list,
+            output,
+            depth,
+            delimiter,
+            is_root,
+            indent_size,
+            ctx,
+        )?;
     } else if let Ok(dict) = obj.cast::<PyDict>() {
-        serialize_object(py, &dict, output, depth, delimiter, is_root, indent_size)?;
+        serialize_object(
+            py,
+            &dict,
+            output,
+            depth,
+            delimiter,
+            is_root,
+            indent_size,
+            ctx,
+        )?;
     } else {
         // Unknown type → null (per spec Section 3)
         output.push_str("null");
@@ -221,6 +263,7 @@ fn serialize_object(
     delimiter: char,
     is_root: bool,
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     let items: Vec<_> = dict.items().iter().collect();
 
@@ -228,6 +271,12 @@ fn serialize_object(
         // Empty object: no output at root, empty line with key elsewhere
         return Ok(());
     }
+
+    // Collect all top-level keys for collision detection
+    let all_keys: HashSet<String> = items
+        .iter()
+        .map(|item| item.extract::<(String, Bound<'_, PyAny>)>().unwrap().0)
+        .collect();
 
     for (i, item) in items.iter().enumerate() {
         let (key, value) = item.extract::<(String, Bound<'_, PyAny>)>()?;
@@ -241,9 +290,86 @@ fn serialize_object(
         // Check if value is an array - need to write key with array header inline
         if value.is_instance_of::<PyList>() {
             if let Ok(list) = value.cast::<PyList>() {
-                serialize_array_with_key(py, &key, &list, output, depth, delimiter, indent_size)?;
+                serialize_array_with_key(
+                    py,
+                    &key,
+                    &list,
+                    output,
+                    depth,
+                    delimiter,
+                    indent_size,
+                    ctx,
+                )?;
             }
         } else {
+            // Try key folding if enabled (only at root level to avoid collisions)
+            if ctx.key_folding && depth == 0 && value.is_instance_of::<PyDict>() {
+                if let Ok(nested_dict) = value.cast::<PyDict>() {
+                    if let Some((folded_key, final_value)) = try_fold_key_chain(
+                        py,
+                        &key,
+                        &nested_dict,
+                        depth,
+                        ctx.flatten_depth,
+                        &all_keys,
+                    )? {
+                        // Successfully folded - emit folded key
+                        serialize_key(&folded_key, output);
+
+                        if final_value.is_instance_of::<PyList>() {
+                            // Folded to array - write array inline (no colon yet, array header will add it)
+                            if let Ok(list) = final_value.cast::<PyList>() {
+                                write_array_inline(
+                                    py,
+                                    &list,
+                                    output,
+                                    depth,
+                                    delimiter,
+                                    indent_size,
+                                    ctx,
+                                )?;
+                            }
+                        } else if final_value.is_instance_of::<PyDict>() {
+                            // Folded to object - serialize nested without further folding
+                            output.push(':');
+                            if let Ok(dict) = final_value.cast::<PyDict>() {
+                                // Create a context with folding disabled for nested serialization
+                                let no_fold_ctx = SerializationContext {
+                                    key_folding: false,
+                                    flatten_depth: 0,
+                                };
+                                serialize_object(
+                                    py,
+                                    &dict,
+                                    output,
+                                    depth + 1,
+                                    delimiter,
+                                    false,
+                                    indent_size,
+                                    &no_fold_ctx,
+                                )?;
+                            }
+                        } else {
+                            // Folded to primitive
+                            output.push(':');
+                            output.push(' ');
+                            serialize_value(
+                                py,
+                                &final_value,
+                                output,
+                                depth,
+                                delimiter,
+                                false,
+                                indent_size,
+                                ctx,
+                            )?;
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            // Standard serialization (no folding)
             // Encode key per Section 7.3
             serialize_key(&key, output);
             output.push(':');
@@ -260,13 +386,23 @@ fn serialize_object(
                         delimiter, // Use document delimiter per Section 11.1
                         false,
                         indent_size,
+                        ctx,
                     )?;
                 }
             } else {
                 // Primitive: space after colon
                 output.push(' ');
                 // Use document delimiter per Section 11.1
-                serialize_value(py, &value, output, depth, delimiter, false, indent_size)?;
+                serialize_value(
+                    py,
+                    &value,
+                    output,
+                    depth,
+                    delimiter,
+                    false,
+                    indent_size,
+                    ctx,
+                )?;
             }
         }
     }
@@ -318,6 +454,163 @@ fn is_valid_unquoted_key(key: &str) -> bool {
     true
 }
 
+/// Try to fold a chain of single-key objects into a dot-notation key
+/// Returns Some((folded_key, final_value)) if folding is possible, None otherwise
+fn try_fold_key_chain<'py>(
+    py: Python<'py>,
+    start_key: &str,
+    start_dict: &Bound<'py, PyDict>,
+    depth: usize,
+    max_depth: usize,
+    sibling_keys: &HashSet<String>,
+) -> PyResult<Option<(String, Bound<'py, PyAny>)>> {
+    // If max_depth is 0 or 1, no folding is possible (need at least 2 keys to fold)
+    if max_depth < 2 {
+        return Ok(None);
+    }
+
+    // If the start_key requires quotes, it cannot be part of a folded chain
+    if !is_valid_unquoted_key(start_key) {
+        return Ok(None);
+    }
+
+    let mut key_chain = vec![start_key.to_string()];
+    let mut current_dict = start_dict.clone();
+    let mut current_value: Option<Bound<'py, PyAny>> = Some(current_dict.clone().into_any());
+
+    loop {
+        // Must have exactly one key
+        if current_dict.len() != 1 {
+            break;
+        }
+
+        // Get the single key and value
+        let items: Vec<_> = current_dict.items().iter().collect();
+        let (next_key, next_value) = items[0].extract::<(String, Bound<'_, PyAny>)>()?;
+
+        // Check if the key can be represented unquoted (safe for folding)
+        if !is_valid_unquoted_key(&next_key) {
+            break;
+        }
+
+        key_chain.push(next_key.clone());
+        current_value = Some(next_value.clone());
+
+        // Check if we've reached the flatten depth limit
+        if key_chain.len() >= max_depth {
+            // Reached depth limit - return what we have folded so far
+            let folded_key = key_chain.join(".");
+            if sibling_keys.contains(&folded_key) {
+                return Ok(None);
+            }
+            return Ok(Some((folded_key, next_value)));
+        }
+
+        // Check what the value is
+        if next_value.is_instance_of::<PyDict>() {
+            if let Ok(dict) = next_value.downcast::<PyDict>() {
+                if dict.is_empty() {
+                    // Empty dict - treat as terminal value
+                    let folded_key = key_chain.join(".");
+                    if sibling_keys.contains(&folded_key) {
+                        return Ok(None);
+                    }
+                    return Ok(Some((folded_key, next_value)));
+                }
+                // Continue folding into non-empty nested dict
+                current_dict = dict.clone();
+            }
+        } else {
+            // Reached a non-object value (primitive or array)
+            // Check for collision with literal keys at current level
+            let folded_key = key_chain.join(".");
+            if sibling_keys.contains(&folded_key) {
+                // Collision detected - cannot fold
+                return Ok(None);
+            }
+
+            // Folding is safe
+            return Ok(Some((folded_key, next_value)));
+        }
+    }
+
+    // Folding not applicable (multi-key object or depth limit reached)
+    Ok(None)
+}
+
+/// Write an array inline (used for folded keys ending in arrays)
+fn write_array_inline(
+    py: Python,
+    list: &Bound<'_, PyList>,
+    output: &mut String,
+    depth: usize,
+    delimiter: char,
+    indent_size: usize,
+    ctx: &SerializationContext,
+) -> PyResult<()> {
+    let len = list.len();
+    let all_primitives = list.iter().all(|item| is_primitive(&item));
+
+    if all_primitives {
+        // Inline primitive array
+        write_array_header(output, len, delimiter, true);
+        if len > 0 {
+            for (i, item) in list.iter().enumerate() {
+                if i > 0 {
+                    output.push(delimiter);
+                }
+                serialize_value(py, &item, output, depth, delimiter, false, indent_size, ctx)?;
+            }
+        }
+    } else {
+        // Check for tabular format
+        if let Some(fields) = detect_tabular(list)? {
+            // Tabular array
+            write_tabular_header(output, len, delimiter, &fields);
+            for item in list.iter() {
+                output.push('\n');
+                write_indent(output, depth + 1, indent_size);
+                let dict = item.cast::<PyDict>()?;
+                for (i, field) in fields.iter().enumerate() {
+                    if i > 0 {
+                        output.push(delimiter);
+                    }
+                    let value = dict.get_item(field)?.unwrap();
+                    serialize_value(
+                        py,
+                        &value,
+                        output,
+                        depth + 1,
+                        delimiter,
+                        false,
+                        indent_size,
+                        ctx,
+                    )?;
+                }
+            }
+        } else {
+            // Expanded array format
+            write_array_header(output, len, delimiter, false);
+            for item in list.iter() {
+                output.push('\n');
+                write_indent(output, depth + 1, indent_size);
+                output.push_str("- ");
+                serialize_value(
+                    py,
+                    &item,
+                    output,
+                    depth + 1,
+                    delimiter,
+                    false,
+                    indent_size,
+                    ctx,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Serialize an array with its key inline (for arrays as object values)
 fn serialize_array_with_key(
     py: Python,
@@ -327,6 +620,7 @@ fn serialize_array_with_key(
     depth: usize,
     delimiter: char,
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     let len = list.len();
 
@@ -343,7 +637,7 @@ fn serialize_array_with_key(
                 if i > 0 {
                     output.push(delimiter);
                 }
-                serialize_value(py, &item, output, depth, delimiter, false, indent_size)?;
+                serialize_value(py, &item, output, depth, delimiter, false, indent_size, ctx)?;
             }
         }
     } else {
@@ -358,10 +652,20 @@ fn serialize_array_with_key(
                 delimiter,
                 &fields,
                 indent_size,
+                ctx,
             )?;
         } else {
             // Expanded list format
-            serialize_expanded_list_with_key(py, key, list, output, depth, delimiter, indent_size)?;
+            serialize_expanded_list_with_key(
+                py,
+                key,
+                list,
+                output,
+                depth,
+                delimiter,
+                indent_size,
+                ctx,
+            )?;
         }
     }
 
@@ -377,6 +681,7 @@ fn serialize_array(
     delimiter: char,
     is_root: bool,
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     let len = list.len();
 
@@ -396,7 +701,7 @@ fn serialize_array(
                 if i > 0 {
                     output.push(delimiter);
                 }
-                serialize_value(py, &item, output, depth, delimiter, false, indent_size)?;
+                serialize_value(py, &item, output, depth, delimiter, false, indent_size, ctx)?;
             }
         }
     } else {
@@ -411,10 +716,20 @@ fn serialize_array(
                 &fields,
                 is_root,
                 indent_size,
+                ctx,
             )?;
         } else {
             // Expanded list format
-            serialize_expanded_list(py, list, output, depth, delimiter, is_root, indent_size)?;
+            serialize_expanded_list(
+                py,
+                list,
+                output,
+                depth,
+                delimiter,
+                is_root,
+                indent_size,
+                ctx,
+            )?;
         }
     }
 
@@ -496,6 +811,7 @@ fn serialize_tabular(
     fields: &[String],
     is_root: bool,
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     let len = list.len();
 
@@ -517,7 +833,16 @@ fn serialize_tabular(
                 output.push(delimiter);
             }
             let value = dict.get_item(field)?.unwrap();
-            serialize_value(py, &value, output, depth + 1, delimiter, false, indent_size)?;
+            serialize_value(
+                py,
+                &value,
+                output,
+                depth + 1,
+                delimiter,
+                false,
+                indent_size,
+                ctx,
+            )?;
         }
     }
 
@@ -534,6 +859,7 @@ fn serialize_tabular_with_key(
     delimiter: char,
     fields: &[String],
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     let len = list.len();
 
@@ -552,7 +878,16 @@ fn serialize_tabular_with_key(
                 output.push(delimiter);
             }
             let value = dict.get_item(field)?.unwrap();
-            serialize_value(py, &value, output, depth + 1, delimiter, false, indent_size)?;
+            serialize_value(
+                py,
+                &value,
+                output,
+                depth + 1,
+                delimiter,
+                false,
+                indent_size,
+                ctx,
+            )?;
         }
     }
 
@@ -568,6 +903,7 @@ fn serialize_expanded_list_with_key(
     depth: usize,
     delimiter: char,
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     let len = list.len();
 
@@ -609,18 +945,37 @@ fn serialize_expanded_list_with_key(
                             delimiter,
                             false,
                             indent_size,
+                            ctx,
                         )?;
                     }
                 }
             } else {
                 // Nested complex array
-                serialize_value(py, &item, output, depth + 1, delimiter, false, indent_size)?;
+                serialize_value(
+                    py,
+                    &item,
+                    output,
+                    depth + 1,
+                    delimiter,
+                    false,
+                    indent_size,
+                    ctx,
+                )?;
             }
         } else if let Ok(dict) = item.cast::<PyDict>() {
             // Object as list item - serialize with first field on same line as "-"
-            serialize_list_item_object(py, &dict, output, depth + 1, delimiter, indent_size)?;
+            serialize_list_item_object(py, &dict, output, depth + 1, delimiter, indent_size, ctx)?;
         } else {
-            serialize_value(py, &item, output, depth + 1, delimiter, false, indent_size)?;
+            serialize_value(
+                py,
+                &item,
+                output,
+                depth + 1,
+                delimiter,
+                false,
+                indent_size,
+                ctx,
+            )?;
         }
     }
 
@@ -636,6 +991,7 @@ fn serialize_expanded_list(
     delimiter: char,
     is_root: bool,
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     let len = list.len();
 
@@ -680,6 +1036,7 @@ fn serialize_expanded_list(
                             delimiter,
                             false,
                             indent_size,
+                            ctx,
                         )?;
                     }
                 }
@@ -706,6 +1063,7 @@ fn serialize_expanded_list(
                                 delimiter,
                                 false,
                                 indent_size,
+                                ctx,
                             )?;
                         }
                     }
@@ -725,6 +1083,7 @@ fn serialize_expanded_list(
                                 depth + 2,
                                 delimiter,
                                 indent_size,
+                                ctx,
                             )?;
                         } else {
                             serialize_value(
@@ -735,6 +1094,7 @@ fn serialize_expanded_list(
                                 delimiter,
                                 false,
                                 indent_size,
+                                ctx,
                             )?;
                         }
                     }
@@ -742,9 +1102,18 @@ fn serialize_expanded_list(
             }
         } else if let Ok(dict) = item.cast::<PyDict>() {
             // Object as list item - serialize with first field on same line as "-"
-            serialize_list_item_object(py, &dict, output, depth + 1, delimiter, indent_size)?;
+            serialize_list_item_object(py, &dict, output, depth + 1, delimiter, indent_size, ctx)?;
         } else {
-            serialize_value(py, &item, output, depth + 1, delimiter, false, indent_size)?;
+            serialize_value(
+                py,
+                &item,
+                output,
+                depth + 1,
+                delimiter,
+                false,
+                indent_size,
+                ctx,
+            )?;
         }
     }
 
@@ -759,6 +1128,7 @@ fn serialize_list_item_object(
     depth: usize,
     delimiter: char,
     indent_size: usize,
+    ctx: &SerializationContext,
 ) -> PyResult<()> {
     let items: Vec<_> = dict.items().iter().collect();
 
@@ -783,6 +1153,7 @@ fn serialize_list_item_object(
                 depth + 1,
                 delimiter,
                 indent_size,
+                ctx,
             )?;
         }
     } else {
@@ -800,6 +1171,7 @@ fn serialize_list_item_object(
                     delimiter,
                     false,
                     indent_size,
+                    ctx,
                 )?;
             }
         } else {
@@ -813,6 +1185,7 @@ fn serialize_list_item_object(
                 delimiter,
                 false,
                 indent_size,
+                ctx,
             )?;
         }
     }
@@ -836,6 +1209,7 @@ fn serialize_list_item_object(
                     depth + 1,
                     delimiter,
                     indent_size,
+                    ctx,
                 )?;
             }
         } else {
@@ -852,11 +1226,21 @@ fn serialize_list_item_object(
                         delimiter,
                         false,
                         indent_size,
+                        ctx,
                     )?;
                 }
             } else {
                 output.push(' ');
-                serialize_value(py, &value, output, depth + 1, delimiter, false, indent_size)?;
+                serialize_value(
+                    py,
+                    &value,
+                    output,
+                    depth + 1,
+                    delimiter,
+                    false,
+                    indent_size,
+                    ctx,
+                )?;
             }
         }
     }
@@ -1172,6 +1556,28 @@ impl<'a> Parser<'a> {
         while self.pos < self.lines.len() {
             let line = self.lines[self.pos];
             self.validate_indentation(line)?;
+
+            let line_trimmed = line.trim();
+            if line_trimmed.is_empty() {
+                // Blank line - check if there are more fields at this depth
+                let mut lookahead = self.pos + 1;
+                while lookahead < self.lines.len() && self.lines[lookahead].trim().is_empty() {
+                    lookahead += 1;
+                }
+
+                if lookahead < self.lines.len() {
+                    let next_depth = self.get_depth(self.lines[lookahead]);
+                    if next_depth >= depth {
+                        // More fields at this depth, skip blank line and continue
+                        self.pos += 1;
+                        continue;
+                    }
+                }
+
+                // No more fields at this depth, end object
+                break;
+            }
+
             let line_depth = self.get_depth(line);
 
             if line_depth < depth {
@@ -1185,34 +1591,42 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            let line_trimmed = line.trim();
-            if line_trimmed.is_empty() {
-                self.pos += 1;
-                continue;
-            }
-
             // Parse key-value line
             if let Some(colon_pos) = self.find_key_value_colon(line_trimmed) {
                 let key_part = &line_trimmed[..colon_pos];
                 let value_part = line_trimmed[colon_pos + 1..].trim();
 
-                // Check if this is an array syntax like: key[N] or "key"[N]
-                // We need to check if brackets appear OUTSIDE any quoted portion
+                // Check if this is an array syntax like: key[N] or "key"[N] or key[N]{fields}
+                // We need to check if brackets appear OUTSIDE any quoted portion for keys
                 // Examples:
-                //   "key"[3]: ... -> has array syntax
-                //   "[index]": ... -> no array syntax (brackets inside quotes)
+                //   "key"[3]: ... -> has array syntax (brackets after quoted key)
+                //   "[index]": ... -> no array syntax (brackets inside quotes, no unquoted brackets)
                 //   "key[test]"[3]: ... -> has array syntax (brackets after closing quote)
+                //   items[2]{"a|b"}: ... -> has array syntax (brackets in key, quotes in field list)
 
-                // Find the position of the last closing quote (if any)
-                let quote_end_pos = key_part.rfind('"');
+                // Find the position of the first opening quote and bracket
+                let first_quote_pos = key_part.find('"');
+                let first_bracket_pos = key_part.find('[');
 
-                let has_array_syntax = if let Some(quote_end) = quote_end_pos {
-                    // Has quotes - check if there are brackets after the closing quote
-                    key_part[quote_end + 1..].contains('[')
-                        && key_part[quote_end + 1..].contains(']')
-                } else {
-                    // No quotes - check for brackets anywhere
-                    key_part.contains('[') && key_part.contains(']')
+                let has_array_syntax = match (first_quote_pos, first_bracket_pos) {
+                    (None, Some(_)) => {
+                        // No quotes, has brackets - check if closing bracket exists
+                        key_part.contains(']')
+                    }
+                    (Some(q), Some(b)) if b < q => {
+                        // Bracket comes before first quote - array syntax (e.g., key[N]{...})
+                        key_part.contains(']')
+                    }
+                    (Some(q), Some(b)) if b > q => {
+                        // Quote comes before bracket - check if bracket is after last quote
+                        if let Some(last_quote) = key_part.rfind('"') {
+                            key_part[last_quote + 1..].contains('[')
+                                && key_part[last_quote + 1..].contains(']')
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
                 };
 
                 // Check if key contains array header (e.g., key[N] or key[N]{fields})
@@ -1222,12 +1636,18 @@ impl<'a> Parser<'a> {
 
                     // Extract key name before the array bracket
                     // For quoted keys like "key"[3] or "key[test]"[3], we want the full quoted part
-                    let key_name = if let Some(quote_end) = quote_end_pos {
-                        // Find first [ after the closing quote
-                        &key_part[..quote_end + 1]
+                    // For unquoted keys like key[N], we want everything before the bracket
+                    let key_name = if key_part.starts_with('"') {
+                        // Quoted key - find the closing quote
+                        if let Some(close_quote) = key_part[1..].find('"').map(|p| p + 1) {
+                            &key_part[..close_quote + 1]
+                        } else {
+                            key_part.split('[').next().unwrap()
+                        }
+                    } else if let Some(first_bracket) = key_part.find('[') {
+                        &key_part[..first_bracket]
                     } else {
-                        // No quotes, split on first [
-                        key_part.split('[').next().unwrap()
+                        key_part
                     };
 
                     // Check for path expansion on the key name
@@ -1270,14 +1690,23 @@ impl<'a> Parser<'a> {
                         let is_nested = if !self.strict && self.explicit_indent.is_none() {
                             let current_indent = self.get_indent_spaces(line);
                             let next_indent = self.get_indent_spaces(next_line);
-                            next_indent > current_indent && !next_line.trim().is_empty()
+                            let next_trimmed = next_line.trim();
+                            next_indent > current_indent
+                                && !next_trimmed.is_empty()
+                                && !next_trimmed.starts_with('-')
                         } else {
                             next_depth > depth
                         };
 
                         if is_nested {
-                            // Nested object
-                            self.parse_object(py, depth + 1)?
+                            // Nested object - in non-strict mode with auto-detected indent,
+                            // use the actual depth of the next line instead of depth+1
+                            let nested_depth = if !self.strict && self.explicit_indent.is_none() {
+                                next_depth
+                            } else {
+                                depth + 1
+                            };
+                            self.parse_object(py, nested_depth)?
                         } else {
                             // Empty object
                             PyDict::new(py).into()
@@ -1412,12 +1841,14 @@ impl<'a> Parser<'a> {
         // Check for field list (tabular)
         // Look for {fieldlist} immediately after ] and before :
         // e.g., items[3]{id,name}: not items[3]: "{key}"
-        let colon_pos = trimmed[bracket_end..]
-            .find(':')
-            .unwrap_or(trimmed.len() - bracket_end);
-        let fields =
-            if let Some(brace_start) = trimmed[bracket_end..bracket_end + colon_pos].find('{') {
-                let brace_end_relative = trimmed[bracket_end..bracket_end + colon_pos]
+        // Need to find colon that's outside any quotes
+        let substring_after_bracket = &trimmed[bracket_end..];
+        let colon_pos = self
+            .find_unquoted_char(substring_after_bracket, ':')
+            .unwrap_or(substring_after_bracket.len());
+        let fields = if let Some(brace_start) = substring_after_bracket[..colon_pos].find('{') {
+            let brace_end_relative =
+                substring_after_bracket[..colon_pos]
                     .find('}')
                     .ok_or_else(|| {
                         PyErr::new::<pyo3::exceptions::PyValueError, _>(
@@ -1425,19 +1856,19 @@ impl<'a> Parser<'a> {
                         )
                     })?;
 
-                let field_content =
-                    &trimmed[bracket_end + brace_start + 1..bracket_end + brace_end_relative];
-                let field_names: Vec<String> = field_content
-                    .split(delimiter)
-                    .map(|f| {
-                        self.parse_key(f.trim())
-                            .unwrap_or_else(|_| f.trim().to_string())
-                    })
-                    .collect();
-                Some(field_names)
-            } else {
-                None
-            };
+            let field_content = &substring_after_bracket[brace_start + 1..brace_end_relative];
+            let field_parts = self.split_by_delimiter(field_content, delimiter);
+            let field_names: Vec<String> = field_parts
+                .iter()
+                .map(|f| {
+                    self.parse_key(f.trim())
+                        .unwrap_or_else(|_| f.trim().to_string())
+                })
+                .collect();
+            Some(field_names)
+        } else {
+            None
+        };
 
         Ok((length, delimiter, fields))
     }
@@ -1456,24 +1887,41 @@ impl<'a> Parser<'a> {
             let line = self.lines[self.pos];
             let line_trimmed = line.trim();
 
-            if line_trimmed.is_empty() {
+            // Check depth before blank line check
+            if !line_trimmed.is_empty() {
+                self.validate_indentation(line)?;
+                let line_depth = self.get_depth(line);
+
+                if line_depth < expected_depth {
+                    break;
+                }
+
+                if line_depth > expected_depth {
+                    self.pos += 1;
+                    continue;
+                }
+            } else {
+                // Blank line - check if it's actually inside the array or after it ends
+                // Look ahead to see if next non-blank line is at lower depth
+                let mut lookahead = self.pos + 1;
+                while lookahead < self.lines.len() && self.lines[lookahead].trim().is_empty() {
+                    lookahead += 1;
+                }
+
+                if lookahead < self.lines.len() {
+                    let next_depth = self.get_depth(self.lines[lookahead]);
+                    if next_depth < expected_depth {
+                        // Blank line is after array ends, not inside it
+                        break;
+                    }
+                }
+
+                // Blank line is inside array
                 if self.strict {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                         "TOON parse error: Blank line inside array",
                     ));
                 }
-                self.pos += 1;
-                continue;
-            }
-
-            self.validate_indentation(line)?;
-            let line_depth = self.get_depth(line);
-
-            if line_depth < expected_depth {
-                break;
-            }
-
-            if line_depth > expected_depth {
                 self.pos += 1;
                 continue;
             }
@@ -1571,7 +2019,36 @@ impl<'a> Parser<'a> {
             let line = self.lines[self.pos];
             let line_trimmed = line.trim();
 
-            if line_trimmed.is_empty() {
+            // Check depth before blank line check
+            if !line_trimmed.is_empty() {
+                self.validate_indentation(line)?;
+                let line_depth = self.get_depth(line);
+
+                if line_depth < expected_depth {
+                    break;
+                }
+
+                if line_depth > expected_depth {
+                    self.pos += 1;
+                    continue;
+                }
+            } else {
+                // Blank line - check if it's actually inside the array or after it ends
+                // Look ahead to see if next non-blank line is at lower depth
+                let mut lookahead = self.pos + 1;
+                while lookahead < self.lines.len() && self.lines[lookahead].trim().is_empty() {
+                    lookahead += 1;
+                }
+
+                if lookahead < self.lines.len() {
+                    let next_depth = self.get_depth(self.lines[lookahead]);
+                    if next_depth < expected_depth {
+                        // Blank line is after array ends, not inside it
+                        break;
+                    }
+                }
+
+                // Blank line is inside array
                 if self.strict {
                     return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                         "TOON parse error: Blank line inside array",
@@ -1581,40 +2058,47 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            self.validate_indentation(line)?;
-            let line_depth = self.get_depth(line);
-
-            if line_depth < expected_depth {
+            // Must start with "-" (may or may not have space after)
+            if !line_trimmed.starts_with('-') {
                 break;
             }
 
-            if line_depth > expected_depth {
-                self.pos += 1;
+            let item_str = if line_trimmed.len() > 1 && line_trimmed.chars().nth(1) == Some(' ') {
+                &line_trimmed[2..]
+            } else if line_trimmed.len() == 1 {
+                "" // Just a dash, empty item
+            } else {
+                &line_trimmed[1..] // Dash with no space after
+            };
+            self.pos += 1;
+
+            // Check if empty (trailing hyphen case: "  - " or "  -")
+            if item_str.is_empty() {
+                // Empty object per spec Section 9.4
+                let empty_obj = PyDict::new(py);
+                list.append(empty_obj)?;
                 continue;
             }
 
-            // Must start with "- "
-            if !line_trimmed.starts_with("- ") {
-                break;
-            }
-
-            let item_str = &line_trimmed[2..];
-            self.pos += 1;
-
-            // Check if it's an inline array
+            // Check if it's an inline array header: [N]: or [N|]: etc
             if item_str.starts_with('[') && item_str.contains("]:") {
                 // Parse header to get correct delimiter for nested array
                 let header_part = item_str.split("]:").next().unwrap();
                 let header_with_bracket = format!("{}]", header_part); // Reconstruct header for parsing
                 let (inner_len, inner_delim, _) = self.parse_header(&header_with_bracket)?;
 
-                let value = self.parse_inline_array(
-                    py,
-                    item_str.split("]: ").nth(1).unwrap_or(""),
-                    inner_delim,
-                    inner_len,
-                )?;
-                list.append(value)?;
+                let after_colon = item_str.split("]:").nth(1).unwrap_or("").trim();
+
+                if after_colon.is_empty() {
+                    // Expanded nested array: "- [2]:" followed by indented items
+                    // Parse as expanded array at depth expected_depth + 1
+                    let value = self.parse_expanded_array(py, inner_len, expected_depth + 1)?;
+                    list.append(value)?;
+                } else {
+                    // Inline nested array: "- [2]: a,b"
+                    let value = self.parse_inline_array(py, after_colon, inner_delim, inner_len)?;
+                    list.append(value)?;
+                }
             } else if item_str.contains(':') {
                 // Object as list item
                 self.pos -= 1;
@@ -1938,8 +2422,14 @@ impl<'a> Parser<'a> {
 
     fn get_depth(&self, line: &str) -> usize {
         let leading_spaces = line.len() - line.trim_start().len();
-        if self.indent_size > 0 {
-            leading_spaces / self.indent_size
+        // Use explicit_indent if provided, otherwise use auto-detected indent_size
+        let indent_to_use = if let Some(explicit) = self.explicit_indent {
+            explicit
+        } else {
+            self.indent_size
+        };
+        if indent_to_use > 0 {
+            leading_spaces / indent_to_use
         } else {
             0
         }
@@ -1951,11 +2441,23 @@ impl<'a> Parser<'a> {
 
     fn is_tabular_row(&self, line: &str, delimiter: char) -> bool {
         // A tabular row has no unquoted colon, or has delimiter before colon
+        // Single-field tabular arrays have no delimiters at all - just values
         let mut in_quotes = false;
+        let mut escape_next = false;
         let mut first_delim_pos = None;
         let mut first_colon_pos = None;
 
         for (i, ch) in line.chars().enumerate() {
+            if escape_next {
+                escape_next = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escape_next = true;
+                continue;
+            }
+
             if ch == '"' {
                 in_quotes = !in_quotes;
             } else if !in_quotes {
@@ -1969,9 +2471,9 @@ impl<'a> Parser<'a> {
         }
 
         match (first_delim_pos, first_colon_pos) {
-            (None, None) => true,        // No special chars - it's a row
-            (Some(_), None) => true,     // Has delimiter, no colon - it's a row
-            (None, Some(_)) => false,    // Has colon, no delimiter - key-value
+            (None, None) => true,     // No special chars - it's a row (single field case)
+            (Some(_), None) => true,  // Has delimiter, no colon - it's a row
+            (None, Some(_)) => false, // Has colon, no delimiter - key-value
             (Some(d), Some(c)) => d < c, // Delimiter before colon - it's a row
         }
     }
@@ -2000,5 +2502,30 @@ impl<'a> Parser<'a> {
         }
 
         result
+    }
+
+    fn find_unquoted_char(&self, s: &str, target: char) -> Option<usize> {
+        let mut in_quotes = false;
+        let mut escape_next = false;
+
+        for (i, ch) in s.chars().enumerate() {
+            if escape_next {
+                escape_next = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escape_next = true;
+                continue;
+            }
+
+            if ch == '"' {
+                in_quotes = !in_quotes;
+            } else if ch == target && !in_quotes {
+                return Some(i);
+            }
+        }
+
+        None
     }
 }
