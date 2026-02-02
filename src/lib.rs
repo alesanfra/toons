@@ -167,12 +167,19 @@ fn dumps(
     key_folding: Option<&str>,
     flatten_depth: Option<usize>,
 ) -> PyResult<String> {
+    if indent < 2 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "indent must be >= 2",
+        ));
+    }
+    // key_folding: only enable when explicitly set to "safe", "on", or "always"
+    let enable_key_folding = matches!(key_folding, Some("safe") | Some("on") | Some("always"));
     toon::serialize(
         py,
         obj,
         delimiter.chars().next().unwrap(),
         indent,
-        key_folding.is_some(),
+        enable_key_folding,
         flatten_depth,
     )
 }
@@ -209,12 +216,19 @@ fn dump(
     key_folding: Option<&str>,
     flatten_depth: Option<usize>,
 ) -> PyResult<()> {
+    if indent < 2 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "indent must be >= 2",
+        ));
+    }
+    // key_folding: only enable when explicitly set to "safe", "on", or "always"
+    let enable_key_folding = matches!(key_folding, Some("safe") | Some("on") | Some("always"));
     let toon_str = toon::serialize(
         py,
         obj,
         delimiter.chars().next().unwrap(),
         indent,
-        key_folding.is_some(),
+        enable_key_folding,
         flatten_depth,
     )?;
     let write_method = fp.getattr("write")?;
