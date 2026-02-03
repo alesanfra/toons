@@ -84,9 +84,16 @@ mod toon;
 ///     >>> print(data)
 ///     {'name': 'Alice', 'age': 30}
 #[pyfunction]
-#[pyo3(signature = (s, *, strict=true))]
-fn loads(py: Python, s: String, strict: bool) -> PyResult<Py<PyAny>> {
-    toon::deserialize(py, &s, strict)
+#[pyo3(signature = (s, *, strict=true, expand_paths=None, indent=None))]
+fn loads(
+    py: Python,
+    s: String,
+    strict: bool,
+    expand_paths: Option<&str>,
+    indent: Option<usize>,
+) -> PyResult<Py<PyAny>> {
+    let expand_mode = expand_paths.unwrap_or("off");
+    toon::deserialize(py, &s, strict, expand_mode, indent)
 }
 
 /// Deserialize a TOON formatted file to a Python object.
@@ -110,12 +117,19 @@ fn loads(py: Python, s: String, strict: bool) -> PyResult<Py<PyAny>> {
 ///     >>> with open('data.toon', 'r') as f:
 ///     ...     data = toons.load(f)
 #[pyfunction]
-#[pyo3(signature = (fp, *, strict=true))]
-fn load(py: Python, fp: &Bound<'_, PyAny>, strict: bool) -> PyResult<Py<PyAny>> {
+#[pyo3(signature = (fp, *, strict=true, expand_paths=None, indent=None))]
+fn load(
+    py: Python,
+    fp: &Bound<'_, PyAny>,
+    strict: bool,
+    expand_paths: Option<&str>,
+    indent: Option<usize>,
+) -> PyResult<Py<PyAny>> {
+    let expand_mode = expand_paths.unwrap_or("off");
     let read_method = fp.getattr("read")?;
     let content = read_method.call0()?;
     let content_str: String = content.extract()?;
-    toon::deserialize(py, &content_str, strict)
+    toon::deserialize(py, &content_str, strict, expand_mode, indent)
 }
 
 /// Serialize a Python object to a TOON formatted string.
@@ -144,9 +158,30 @@ fn load(py: Python, fp: &Bound<'_, PyAny>, strict: bool) -> PyResult<Py<PyAny>> 
 ///     >>> # Custom indentation
 ///     >>> toon_str = toons.dumps(data, indent=4)
 #[pyfunction]
-#[pyo3(signature = (obj, *, indent=2))]
-fn dumps(py: Python, obj: &Bound<'_, PyAny>, indent: usize) -> PyResult<String> {
-    toon::serialize(py, obj, indent)
+#[pyo3(signature = (obj, *, indent=2, delimiter=",", key_folding=None, flatten_depth=None))]
+fn dumps(
+    py: Python,
+    obj: &Bound<'_, PyAny>,
+    indent: usize,
+    delimiter: &str,
+    key_folding: Option<&str>,
+    flatten_depth: Option<usize>,
+) -> PyResult<String> {
+    if indent < 2 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "indent must be >= 2",
+        ));
+    }
+    // key_folding: only enable when explicitly set to "safe", "on", or "always"
+    let enable_key_folding = matches!(key_folding, Some("safe") | Some("on") | Some("always"));
+    toon::serialize(
+        py,
+        obj,
+        delimiter.chars().next().unwrap(),
+        indent,
+        enable_key_folding,
+        flatten_depth,
+    )
 }
 
 /// Serialize a Python object to a TOON formatted file.
@@ -171,9 +206,31 @@ fn dumps(py: Python, obj: &Bound<'_, PyAny>, indent: usize) -> PyResult<String> 
 ///     >>> with open('data.toon', 'w') as f:
 ///     ...     toons.dump(data, f, indent=4)
 #[pyfunction]
-#[pyo3(signature = (obj, fp, *, indent=2))]
-fn dump(py: Python, obj: &Bound<'_, PyAny>, fp: &Bound<'_, PyAny>, indent: usize) -> PyResult<()> {
-    let toon_str = toon::serialize(py, obj, indent)?;
+#[pyo3(signature = (obj, fp, *, indent=2, delimiter=",", key_folding=None, flatten_depth=None))]
+fn dump(
+    py: Python,
+    obj: &Bound<'_, PyAny>,
+    fp: &Bound<'_, PyAny>,
+    indent: usize,
+    delimiter: &str,
+    key_folding: Option<&str>,
+    flatten_depth: Option<usize>,
+) -> PyResult<()> {
+    if indent < 2 {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "indent must be >= 2",
+        ));
+    }
+    // key_folding: only enable when explicitly set to "safe", "on", or "always"
+    let enable_key_folding = matches!(key_folding, Some("safe") | Some("on") | Some("always"));
+    let toon_str = toon::serialize(
+        py,
+        obj,
+        delimiter.chars().next().unwrap(),
+        indent,
+        enable_key_folding,
+        flatten_depth,
+    )?;
     let write_method = fp.getattr("write")?;
     write_method.call1((toon_str,))?;
     Ok(())

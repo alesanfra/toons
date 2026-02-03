@@ -10,6 +10,17 @@
 
 TOONS - Token Oriented Object Notation Serializer - is a fast Rust-based library that provides a Python interface mirroring the `json` module API, making it easy to work with the TOON format—a token-efficient data serialization format designed specifically for Large Language Models.
 
+
+## Documentation
+
+📖 Read the full documentation at **[toons.readthedocs.io](https://toons.readthedocs.io/en/stable/)**.
+
+Quick start pages:
+- 🚀 **[Getting Started](https://toons.readthedocs.io/en/stable/getting-started/)** - Installation and first steps
+- 💡 **[Examples](https://toons.readthedocs.io/en/stable/examples/)** - Practical usage examples
+- 📚 **[API Reference](https://toons.readthedocs.io/en/stable/api-reference/)** - Complete API documentation
+
+
 ## Why TOON?
 
 The TOON format achieves **30-60% fewer tokens** than equivalent JSON, making it ideal for LLM contexts where token count impacts costs and context capacity.
@@ -82,15 +93,6 @@ with open("data.toon", "w") as f:
 with open("data.toon", "r") as f:
     data = toons.load(f)
 ```
-
-## Documentation
-
-📖 **[Read the full documentation at toons.readthedocs.io](https://toons.readthedocs.io/en/stable/)**
-
-- 🚀 **[Getting Started](https://toons.readthedocs.io/en/stable/getting-started/)** - Installation and first steps
-- 💡 **[Examples](https://toons.readthedocs.io/en/stable/examples/)** - Practical usage examples
-- 📚 **[API Reference](https://toons.readthedocs.io/en/stable/api-reference/)** - Complete API documentation
-- 📋 **[TOON Specification](https://toons.readthedocs.io/en/stable/specification/)** - Format specification v3.0
 
 ## Development
 

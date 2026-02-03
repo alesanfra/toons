@@ -122,18 +122,23 @@ except ValueError as e:
 
 ---
 
-### `dumps(obj)`
+### `dumps(obj, *, indent=2, delimiter=",")`
 
 Serialize a Python object to a TOON-formatted string.
 
 **Signature:**
 ```python
-def dumps(obj: Any) -> str
+def dumps(obj: Any, *, indent: int = 2, delimiter: str = ",") -> str
 ```
 
 **Parameters:**
 
 - `obj`: Python object to serialize (must be JSON-serializable types)
+- `indent` (`int`, optional): Number of spaces per indentation level (default: 2, minimum: 2)
+- `delimiter` (`str`, optional): Delimiter character for arrays and tabular format (default: ","). Supported values:
+  - `","` - Comma (default)
+  - `"\t"` - Tab
+  - `"|"` - Pipe
 
 **Returns:**
 
@@ -183,35 +188,50 @@ print(toons.dumps(data))
 #   Alice,30
 #   Bob,25
 
-# Nested objects
+# Custom indentation (4 spaces)
+data = {"nested": {"value": 42}}
+print(toons.dumps(data, indent=4))
+# nested:
+#     value: 42
+
+# Tab delimiter
+data = {"items": [1, 2, 3]}
+print(toons.dumps(data, delimiter="\t"))
+# items[3\t]: 1\t2\t3
+
+# Pipe delimiter with tabular format
 data = {
-    "user": {
-        "name": "Alice",
-        "contact": {"email": "alice@example.com"}
-    }
+    "users": [
+        {"name": "Alice", "age": 30},
+        {"name": "Bob", "age": 25}
+    ]
 }
-print(toons.dumps(data))
-# user:
-#   name: Alice
-#   contact:
-#     email: alice@example.com
+print(toons.dumps(data, delimiter="|"))
+# users[2|]{name|age}:
+#   Alice|30
+#   Bob|25
 ```
 
 ---
 
-### `dump(obj, fp)`
+### `dump(obj, fp, *, indent=2, delimiter=",")`
 
 Serialize a Python object to TOON format and write to a file object.
 
 **Signature:**
 ```python
-def dump(obj: Any, fp: IO[str]) -> None
+def dump(obj: Any, fp: IO[str], *, indent: int = 2, delimiter: str = ",") -> None
 ```
 
 **Parameters:**
 
 - `obj`: Python object to serialize
 - `fp`: File-like object supporting `.write()` method
+- `indent` (`int`, optional): Number of spaces per indentation level (default: 2, minimum: 2)
+- `delimiter` (`str`, optional): Delimiter character for arrays and tabular format (default: ","). Supported values:
+  - `","` - Comma (default)
+  - `"\t"` - Tab
+  - `"|"` - Pipe
 
 **Returns:**
 
@@ -237,6 +257,18 @@ data = {
 
 with open("users.toon", "w") as f:
     toons.dump(data, f)
+
+# Custom indentation
+with open("users.toon", "w") as f:
+    toons.dump(data, f, indent=4)
+
+# Tab delimiter
+with open("users.toon", "w") as f:
+    toons.dump(data, f, delimiter="\t")
+
+# Pipe delimiter with custom indentation
+with open("users.toon", "w") as f:
+    toons.dump(data, f, indent=4, delimiter="|")
 
 # With error handling
 try:
