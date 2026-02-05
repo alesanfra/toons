@@ -23,6 +23,7 @@ Source = "https://github.com/alesanfra/toons"
 
 [tool.maturin]
 features = ["pyo3/extension-module", "pyo3/abi3-py37"]
+include = ["toons.pyi"]
 
 [tool.ruff]
 line-length = 79
