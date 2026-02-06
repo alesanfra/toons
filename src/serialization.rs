@@ -1,8 +1,3 @@
-//! TOON serialization module
-//!
-//! Implements encoding of Python objects to TOON format according to
-//! TOON Specification v3.0 (2025-11-24).
-
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::collections::HashSet;
@@ -22,6 +17,62 @@ impl SerializationContext {
             flatten_depth: flatten_depth.unwrap_or(usize::MAX),
         }
     }
+}
+
+/// Serialize a Python object to TOON format string.
+///
+/// # Arguments
+///
+/// * `py` - Python interpreter handle
+/// * `obj` - Python object to serialize (dict, list, or primitive)
+/// * `delimiter` - Delimiter character for arrays/tables (',' | '\t' | '|')
+/// * `indent_size` - Number of spaces per indentation level
+/// * `key_folding` - Enable key folding (e.g., `a.b: value` for `a: {b: value}`)
+/// * `flatten_depth` - Maximum depth for key folding (None for unlimited)
+///
+/// # Returns
+///
+/// TOON format string
+pub fn serialize(
+    py: Python,
+    obj: &Bound<'_, PyAny>,
+    delimiter: char,
+    indent_size: usize,
+    key_folding: bool,
+    flatten_depth: Option<usize>,
+) -> PyResult<String> {
+    let mut output = String::new();
+    let ctx = SerializationContext::new(key_folding, flatten_depth);
+
+    // Detect root form
+    if let Ok(dict) = obj.cast::<PyDict>() {
+        serialize_object(
+            py,
+            &dict,
+            &mut output,
+            0,
+            delimiter,
+            true,
+            indent_size,
+            &ctx,
+        )?;
+    } else if let Ok(list) = obj.cast::<pyo3::types::PyList>() {
+        serialize_array(
+            py,
+            &list,
+            &mut output,
+            0,
+            delimiter,
+            true,
+            indent_size,
+            &ctx,
+        )?;
+    } else {
+        // Single primitive at root
+        serialize_value(py, obj, &mut output, 0, delimiter, true, indent_size, &ctx)?;
+    }
+
+    Ok(output)
 }
 
 /// Serialize a value at a given depth with specified delimiter context

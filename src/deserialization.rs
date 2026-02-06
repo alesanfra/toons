@@ -1,10 +1,29 @@
-//! TOON deserialization module
-//!
-//! Implements decoding of TOON format to Python objects according to
-//! TOON Specification v3.0 (2025-11-24).
-
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
+
+/// Deserialize a TOON format string to a Python object.
+///
+/// # Arguments
+///
+/// * `py` - Python interpreter handle
+/// * `input` - TOON format string
+/// * `strict` - Enable strict mode validation
+/// * `expand_paths` - Path expansion mode ("off" | "safe" | "always")
+/// * `indent` - Expected indentation size (None for auto-detect)
+///
+/// # Returns
+///
+/// Python object (dict, list, or primitive)
+pub fn deserialize(
+    py: Python,
+    input: &str,
+    strict: bool,
+    expand_paths: &str,
+    indent: Option<usize>,
+) -> PyResult<Py<PyAny>> {
+    let mut parser = Parser::new(input, strict, expand_paths, indent);
+    parser.parse(py)
+}
 
 /// Check if a segment is a valid identifier for path expansion (unquoted alphanumeric with dots/underscores)
 fn is_valid_identifier_segment(s: &str) -> bool {
