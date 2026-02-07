@@ -4,6 +4,8 @@ Integration tests using official TOON specification fixtures.
 This test suite validates the implementation against the comprehensive
 language-agnostic JSON test fixtures defined in the TOON specification.
 It covers all specification requirements for both encoding and decoding.
+
+Original repository: https://github.com/toon-format/spec/tree/main/tests
 """
 
 import json
@@ -58,7 +60,7 @@ def collect_encode_fixtures() -> list[tuple]:
                     test_id,
                     test["input"],
                     test["expected"],
-                    test.get("options", {}),
+                    convert_options_to_snake_case(test.get("options", {})),
                     test.get("shouldError", False),
                     test.get("note", ""),
                 )
@@ -82,7 +84,7 @@ def collect_decode_fixtures() -> list[tuple]:
                     test_id,
                     test["input"],
                     test["expected"],
-                    test.get("options", {}),
+                    convert_options_to_snake_case(test.get("options", {})),
                     test.get("shouldError", False),
                     test.get("note", ""),
                 )
@@ -96,7 +98,7 @@ def collect_decode_fixtures() -> list[tuple]:
     collect_encode_fixtures(),
     ids=lambda x: x if isinstance(x, str) else "",
 )
-def test_integration_encode(
+def test_integration_dumps(
     test_id: str,
     input_data: Any,
     expected: str,
@@ -105,17 +107,43 @@ def test_integration_encode(
     note: str,
 ):
     """Test encoding from JSON to TOON format."""
-    # Convert camelCase options to snake_case for Python functions
-    python_options = convert_options_to_snake_case(options)
 
     if should_error:
         # Test expects an error to be raised
         with pytest.raises(Exception):
-            toons.dumps(input_data, **python_options)
+            toons.dumps(input_data, **options)
     else:
         # Test expects successful encoding
-        result = toons.dumps(input_data, **python_options)
+        result = toons.dumps(input_data, **options)
         assert result == expected, f"Failed: {test_id}\nNote: {note}"
+
+
+@pytest.mark.parametrize(
+    "test_id,input_data,expected,options,should_error,note",
+    collect_encode_fixtures(),
+    ids=lambda x: x if isinstance(x, str) else "",
+)
+def test_integration_dump(
+    test_id: str,
+    input_data: Any,
+    expected: str,
+    options: dict[str, Any],
+    should_error: bool,
+    note: str,
+    tmp_path: Path,
+):
+    """Test encoding from JSON to TOON format."""
+    with open(tmp_path / "temp.toon", "w+t") as f:
+        if should_error:
+            # Test expects an error to be raised
+            with pytest.raises(Exception):
+                toons.dump(input_data, f, **options)
+        else:
+            # Test expects successful encoding
+            toons.dump(input_data, f, **options)
+            f.seek(0)
+            result = f.read()
+            assert result == expected, f"Failed: {test_id}\nNote: {note}"
 
 
 @pytest.mark.parametrize(
@@ -123,7 +151,7 @@ def test_integration_encode(
     collect_decode_fixtures(),
     ids=lambda x: x if isinstance(x, str) else "",
 )
-def test_integration_decode(
+def test_integration_loads(
     test_id: str,
     input_toon: str,
     expected: Any,
@@ -132,14 +160,42 @@ def test_integration_decode(
     note: str,
 ):
     """Test decoding from TOON to JSON format."""
-    # Convert camelCase options to snake_case for Python functions
-    python_options = convert_options_to_snake_case(options)
 
     if should_error:
         # Test expects an error to be raised
         with pytest.raises(Exception):
-            toons.loads(input_toon, **python_options)
+            toons.loads(input_toon, **options)
     else:
         # Test expects successful decoding
-        result = toons.loads(input_toon, **python_options)
+        result = toons.loads(input_toon, **options)
         assert result == expected, f"Failed: {test_id}\nNote: {note}"
+
+
+@pytest.mark.parametrize(
+    "test_id,input_toon,expected,options,should_error,note",
+    collect_decode_fixtures(),
+    ids=lambda x: x if isinstance(x, str) else "",
+)
+def test_integration_load(
+    test_id: str,
+    input_toon: str,
+    expected: Any,
+    options: dict[str, Any],
+    should_error: bool,
+    note: str,
+    tmp_path: Path,
+):
+    """Test decoding from TOON to JSON format."""
+
+    with open(tmp_path / "temp.toon", "w+t") as f:
+        f.write(input_toon)
+        f.seek(0)
+
+        if should_error:
+            # Test expects an error to be raised
+            with pytest.raises(Exception):
+                toons.load(f, **options)
+        else:
+            # Test expects successful decoding
+            result = toons.load(f, **options)
+            assert result == expected, f"Failed: {test_id}\nNote: {note}"
