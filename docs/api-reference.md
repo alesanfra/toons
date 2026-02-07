@@ -10,19 +10,25 @@ The `toons` module provides a JSON-like API for working with TOON format data.
 
 ## Functions
 
-### `loads(s, *, strict=True)`
+### `loads(s, *, strict=True, expand_paths=None, indent=None)`
 
 Parse a TOON-formatted string and return the corresponding Python object.
 
 **Signature:**
 ```python
-def loads(s: str, *, strict: bool = True) -> Any
+def loads(s: str, *, strict: bool = True, expand_paths: Optional[str] = None, indent: Optional[int] = None) -> Any
 ```
 
 **Parameters:**
 
 - `s` (`str`): TOON-formatted string to parse
 - `strict` (`bool`, optional): If `True` (default), enforce strict TOON v3.0 compliance. If `False`, allow some leniency (e.g., blank lines in arrays, indentation mismatches).
+- `expand_paths` (`str`, optional): Path expansion mode. Accepted values:
+  - `None` (default): No path expansion
+  - `"off"`: Explicitly disable path expansion
+  - `"safe"`: Expand `~` and environment variables safely
+  - `"always"`: Expand all path references
+- `indent` (`int`, optional): Indentation size hint for parsing (rarely needed). Helps parser understand expected indentation levels.
 
 **Returns:**
 
@@ -77,19 +83,25 @@ except ValueError as e:
 
 ---
 
-### `load(fp, *, strict=True)`
+### `load(fp, *, strict=True, expand_paths=None, indent=None)`
 
 Parse TOON data from a file object and return the corresponding Python object.
 
 **Signature:**
 ```python
-def load(fp: IO[str], *, strict: bool = True) -> Any
+def load(fp: IO[str], *, strict: bool = True, expand_paths: Optional[str] = None, indent: Optional[int] = None) -> Any
 ```
 
 **Parameters:**
 
 - `fp`: File-like object supporting `.read()` method
 - `strict` (`bool`, optional): If `True` (default), enforce strict TOON v3.0 compliance. If `False`, allow some leniency.
+- `expand_paths` (`str`, optional): Path expansion mode. Accepted values:
+  - `None` (default): No path expansion
+  - `"off"`: Explicitly disable path expansion
+  - `"safe"`: Expand `~` and environment variables safely
+  - `"always"`: Expand all path references
+- `indent` (`int`, optional): Indentation size hint for parsing (rarely needed).
 
 **Returns:**
 
@@ -122,13 +134,13 @@ except ValueError as e:
 
 ---
 
-### `dumps(obj, *, indent=2, delimiter=",")`
+### `dumps(obj, *, indent=2, delimiter=",", key_folding=None, flatten_depth=None)`
 
 Serialize a Python object to a TOON-formatted string.
 
 **Signature:**
 ```python
-def dumps(obj: Any, *, indent: int = 2, delimiter: str = ",") -> str
+def dumps(obj: Any, *, indent: int = 2, delimiter: str = ",", key_folding: Optional[str] = None, flatten_depth: Optional[int] = None) -> str
 ```
 
 **Parameters:**
@@ -139,6 +151,12 @@ def dumps(obj: Any, *, indent: int = 2, delimiter: str = ",") -> str
   - `","` - Comma (default)
   - `"\t"` - Tab
   - `"|"` - Pipe
+- `key_folding` (`str`, optional): Enable key path flattening for nested objects. Accepted values:
+  - `None` (default): No key folding
+  - `"safe"`: Fold keys safely (avoid conflicts)
+  - `"on"`: Enable key folding
+  - `"always"`: Always fold keys (may create conflicts)
+- `flatten_depth` (`int`, optional): Maximum depth for key folding. Nesting deeper than this stays expanded. Works with `key_folding`.
 
 **Returns:**
 
@@ -214,13 +232,13 @@ print(toons.dumps(data, delimiter="|"))
 
 ---
 
-### `dump(obj, fp, *, indent=2, delimiter=",")`
+### `dump(obj, fp, *, indent=2, delimiter=",", key_folding=None, flatten_depth=None)`
 
 Serialize a Python object to TOON format and write to a file object.
 
 **Signature:**
 ```python
-def dump(obj: Any, fp: IO[str], *, indent: int = 2, delimiter: str = ",") -> None
+def dump(obj: Any, fp: IO[str], *, indent: int = 2, delimiter: str = ",", key_folding: Optional[str] = None, flatten_depth: Optional[int] = None) -> None
 ```
 
 **Parameters:**
@@ -232,6 +250,12 @@ def dump(obj: Any, fp: IO[str], *, indent: int = 2, delimiter: str = ",") -> Non
   - `","` - Comma (default)
   - `"\t"` - Tab
   - `"|"` - Pipe
+- `key_folding` (`str`, optional): Enable key path flattening for nested objects. Accepted values:
+  - `None` (default): No key folding
+  - `"safe"`: Fold keys safely (avoid conflicts)
+  - `"on"`: Enable key folding
+  - `"always"`: Always fold keys (may create conflicts)
+- `flatten_depth` (`int`, optional): Maximum depth for key folding. Nesting deeper than this stays expanded. Works with `key_folding`.
 
 **Returns:**
 
@@ -382,10 +406,10 @@ TOONS mirrors the `json` module API for easy migration:
 
 | json | toons | Notes |
 |------|-------|-------|
-| `json.loads()` | `toons.loads()` | Same API, different format |
-| `json.dumps()` | `toons.dumps()` | More compact output |
-| `json.load()` | `toons.load()` | File operations |
-| `json.dump()` | `toons.dump()` | File operations |
+| `json.loads(s)` | `toons.loads(s)` | Same API, different format |
+| `json.dumps(obj)` | `toons.dumps(obj)` | More compact output; supports key_folding, flatten_depth |
+| `json.load(fp)` | `toons.load(fp)` | File operations |
+| `json.dump(obj, fp)` | `toons.dump(obj, fp)` | File operations |
 
 **Migration example:**
 
