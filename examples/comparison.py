@@ -1,5 +1,6 @@
 import difflib
 import pprint
+import time
 
 import toons
 
@@ -134,9 +135,17 @@ DATA = {
     },
 }
 
-official_result = toon.encode(DATA)
-toons_result = toons.dumps(DATA)
+ITERATIONS = 1000
 
+start = time.perf_counter()
+for _ in range(ITERATIONS):
+    official_result = toon.encode(DATA)
+print(f"Official toon.encode: {time.perf_counter() - start:.4f} seconds")
+
+start = time.perf_counter()
+for _ in range(ITERATIONS):
+    toons_result = toons.dumps(DATA)
+print(f"toons.dumps: {time.perf_counter() - start:.4f} seconds")
 
 print(
     "\n".join(

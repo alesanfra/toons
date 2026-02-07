@@ -451,6 +451,171 @@ test_data = {
 verify_roundtrip(test_data)
 ```
 
+## Advanced Parameters
+
+### Key Folding (Flattening Nested Objects)
+
+Flatten nested object keys into dot-notation paths:
+
+```python
+import toons
+
+data = {
+    "config": {
+        "database": {
+            "host": "localhost",
+            "port": 5432
+        },
+        "api": {
+            "debug": True
+        }
+    }
+}
+
+# Without key folding (default)
+print(toons.dumps(data))
+# config:
+#   database:
+#     host: localhost
+#     port: 5432
+#   api:
+#     debug: true
+
+# With key folding
+print(toons.dumps(data, key_folding="safe"))
+# config.database.host: localhost
+# config.database.port: 5432
+# config.api.debug: true
+```
+
+### Flatten Depth (Limit Nesting Depth)
+
+Control maximum nesting depth before flattening:
+
+```python
+import toons
+
+data = {
+    "app": {
+        "settings": {
+            "ui": {
+                "theme": "dark",
+                "language": "en"
+            }
+        }
+    }
+}
+
+# Only flatten up to depth 2
+result = toons.dumps(data, key_folding="safe", flatten_depth=2)
+# app.settings:
+#   ui:
+#     theme: dark
+#     language: en
+```
+
+### Path Expansion
+
+Expand environment variables and home directory paths (for deserialization):
+
+```python
+import toons
+import os
+
+os.environ["DATA_DIR"] = "/var/data"
+
+toon_str = """
+paths[2]: ~/documents,$DATA_DIR
+home: ~
+"""
+
+# Safe expansion (expand ~ and env vars)
+data = toons.loads(toon_str, expand_paths="safe")
+print(data)
+# {
+#   'paths': ['/home/user/documents', '/var/data'],
+#   'home': '/home/user'
+# }
+
+# No expansion (default)
+data = toons.loads(toon_str)
+print(data)
+# {
+#   'paths': ['~/documents', '$DATA_DIR'],
+#   'home': '~'
+# }
+```
+
+### Custom Delimiters
+
+Use different delimiters for array and tabular data:
+
+```python
+import toons
+
+data = {"items": [1, 2, 3], "users": [{"name": "Alice", "age": 30}]}
+
+# Tab delimiter
+print(toons.dumps(data, delimiter="\t"))
+# items[3	]: 1	2	3
+# users[1{name	age}]:
+#   Alice	30
+
+# Pipe delimiter
+print(toons.dumps(data, delimiter="|"))
+# items[3|]: 1|2|3
+# users[1|{name|age}]:
+#   Alice|30
+```
+
+### Custom Indentation
+
+Control indentation levels:
+
+```python
+import toons
+
+data = {"nested": {"deeply": {"value": 42}}}
+
+# 4-space indentation
+print(toons.dumps(data, indent=4))
+# nested:
+#     deeply:
+#         value: 42
+
+# 1-space indentation
+print(toons.dumps(data, indent=1))
+# nested:
+#  deeply:
+#   value: 42
+```
+
+### Strict Mode
+
+Enforce strict TOON v3.0 compliance during parsing:
+
+```python
+import toons
+
+# Valid TOON but lax (blank line in array)
+toon_str = """
+items[2]:
+  - 1
+
+  - 2
+"""
+
+# Strict mode (default) - raises error
+try:
+    data = toons.loads(toon_str)
+except ValueError as e:
+    print(f"Strict mode error: {e}")
+
+# Non-strict mode - allows leniency
+data = toons.loads(toon_str, strict=False)
+print(data)  # {'items': [1, 2]}
+```
+
 ## Performance Comparison
 
 ```python

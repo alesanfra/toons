@@ -34,7 +34,6 @@ mkdocs build
 docs/
 ├── index.md              # Home page
 ├── getting-started.md    # Installation and setup
-├── quick-start.md        # Quick start guide
 ├── examples.md           # Practical examples
 ├── api-reference.md      # Complete API documentation
 ├── specification.md      # TOON format specification
@@ -50,10 +49,9 @@ docs/
 
 - **[Home](index.md)** - Introduction and overview
 - **[Getting Started](getting-started.md)** - Installation and first steps
-- **[Quick Start](quick-start.md)** - Get up and running quickly
 - **[Examples](examples.md)** - Practical usage examples
 - **[API Reference](api-reference.md)** - Complete API documentation
-- **[Specification](specification.md)** - TOON format specification v3.0
+- **[Specification](specification.md)** - TOON format specification
 - **[Data Types](data-types.md)** - Type mapping and conversion
 
 ### Developer Documentation
@@ -106,15 +104,15 @@ The site is configured in `mkdocs.yml`:
 
 ## Publishing
 
-Documentation can be published using:
+Documentation is built with MkDocs and hosted on GitHub Pages:
 
 ```bash
-# Build and deploy to GitHub Pages
+# Deploy to GitHub Pages
 mkdocs gh-deploy
 
-# Or build manually and deploy to your hosting
+# Or build manually
 mkdocs build
-# Upload site/ directory to your host
+# Then push site/ directory to your hosting
 ```
 
 ## Contributing to Documentation
