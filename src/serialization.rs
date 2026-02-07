@@ -128,8 +128,28 @@ pub fn serialize_value(
             ctx,
         )?;
     } else {
-        // Unknown type → null (per spec Section 3)
-        output.push_str("null");
+        // Try to convert datetime and time objects to ISO format strings
+        let datetime_module = py.import("datetime")?;
+        let datetime_class = datetime_module.getattr("datetime")?;
+        let date_class = datetime_module.getattr("date")?;
+        let time_class = datetime_module.getattr("time")?;
+
+        if obj.is_instance(&datetime_class)? {
+            // datetime object: call isoformat()
+            let iso_str: String = obj.call_method0("isoformat")?.extract()?;
+            serialize_string(&iso_str, output, delimiter);
+        } else if obj.is_instance(&date_class)? {
+            // date object: call isoformat()
+            let iso_str: String = obj.call_method0("isoformat")?.extract()?;
+            serialize_string(&iso_str, output, delimiter);
+        } else if obj.is_instance(&time_class)? {
+            // time object: call isoformat()
+            let iso_str: String = obj.call_method0("isoformat")?.extract()?;
+            serialize_string(&iso_str, output, delimiter);
+        } else {
+            // Unknown type → null (per spec Section 3)
+            output.push_str("null");
+        }
     }
     Ok(())
 }
