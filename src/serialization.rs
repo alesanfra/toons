@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyDate, PyDateTime, PyDict, PyList, PyTime};
 use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 
@@ -127,29 +127,18 @@ pub fn serialize_value(
             indent_size,
             ctx,
         )?;
+    } else if let Ok(dt) = obj.cast::<PyDateTime>() {
+        let iso_str: String = dt.call_method0("isoformat")?.extract()?;
+        serialize_string(&iso_str, output, delimiter);
+    } else if let Ok(date) = obj.cast::<PyDate>() {
+        let iso_str: String = date.call_method0("isoformat")?.extract()?;
+        serialize_string(&iso_str, output, delimiter);
+    } else if let Ok(time) = obj.cast::<PyTime>() {
+        let iso_str: String = time.call_method0("isoformat")?.extract()?;
+        serialize_string(&iso_str, output, delimiter);
     } else {
-        // Try to convert datetime and time objects to ISO format strings
-        let datetime_module = py.import("datetime")?;
-        let datetime_class = datetime_module.getattr("datetime")?;
-        let date_class = datetime_module.getattr("date")?;
-        let time_class = datetime_module.getattr("time")?;
-
-        if obj.is_instance(&datetime_class)? {
-            // datetime object: call isoformat()
-            let iso_str: String = obj.call_method0("isoformat")?.extract()?;
-            serialize_string(&iso_str, output, delimiter);
-        } else if obj.is_instance(&date_class)? {
-            // date object: call isoformat()
-            let iso_str: String = obj.call_method0("isoformat")?.extract()?;
-            serialize_string(&iso_str, output, delimiter);
-        } else if obj.is_instance(&time_class)? {
-            // time object: call isoformat()
-            let iso_str: String = obj.call_method0("isoformat")?.extract()?;
-            serialize_string(&iso_str, output, delimiter);
-        } else {
-            // Unknown type → null (per spec Section 3)
-            output.push_str("null");
-        }
+        // Unknown type → null (per spec Section 3)
+        output.push_str("null");
     }
     Ok(())
 }

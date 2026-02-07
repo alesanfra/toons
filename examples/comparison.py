@@ -5,8 +5,10 @@ import toons
 
 try:
     import toon
-except ImportError:
-    print("pip install python-toon")
+except ImportError as e:
+    print(e)
+    print("Install it with: 'pip install python-toon'")
+    exit(1)
 
 
 DATA = {
