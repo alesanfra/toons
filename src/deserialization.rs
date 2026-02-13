@@ -994,7 +994,7 @@ impl<'a> Parser<'a> {
         let mut in_quotes = false;
         let mut escape_next = false;
 
-        for (i, ch) in line.chars().enumerate() {
+        for (i, ch) in line.char_indices() {
             if escape_next {
                 escape_next = false;
                 continue;
@@ -1022,7 +1022,7 @@ impl<'a> Parser<'a> {
         let mut in_quotes = false;
         let mut escape_next = false;
 
-        for (i, ch) in line.chars().enumerate() {
+        for (i, ch) in line.char_indices() {
             if escape_next {
                 escape_next = false;
                 continue;
@@ -1112,7 +1112,7 @@ impl<'a> Parser<'a> {
         let mut first_delim_pos = None;
         let mut first_colon_pos = None;
 
-        for (i, ch) in line.chars().enumerate() {
+        for (i, ch) in line.char_indices() {
             if escape_next {
                 escape_next = false;
                 continue;
@@ -1174,7 +1174,7 @@ impl<'a> Parser<'a> {
         let mut in_quotes = false;
         let mut escape_next = false;
 
-        for (i, ch) in s.chars().enumerate() {
+        for (i, ch) in s.char_indices() {
             if escape_next {
                 escape_next = false;
                 continue;

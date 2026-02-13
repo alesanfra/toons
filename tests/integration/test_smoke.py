@@ -142,3 +142,31 @@ class TestSmokeStrictFlag:
             f.seek(0)
             with pytest.raises(ValueError, match="Blank line inside array"):
                 toons.load(f)
+
+
+class TestSmokeUnicode:
+    """Minimal smoke test for Unicode handling."""
+
+    def test_unicode_in_dataset(self):
+        d = {"Test®": [{"name": "a", "age": 2}]}
+        s = toons.dumps(d)
+        t = toons.loads(s)
+        assert t == d
+
+    def test_unicode_in_field(self):
+        d = {"Test": [{"name®": "a", "age": 2}]}
+        s = toons.dumps(d)
+        t = toons.loads(s)
+        assert t == d
+
+    def test_unicode_in_value(self):
+        d = {"Test": [{"name": "a®", "age": 2}]}
+        s = toons.dumps(d)
+        t = toons.loads(s)
+        assert t == d
+
+    def test_unicode_in_array(self):
+        d = ["a®", "b", "c"]
+        s = toons.dumps(d)
+        t = toons.loads(s)
+        assert t == d
