@@ -103,7 +103,8 @@
       "chinese": "你好世界",
       "japanese": "こんにちは世界",
       "arabic": "مرحبا بالعالم",
-      "russian": "Привет мир"
+      "russian": "Привет мир",
+      "others": "®"
     }
   },
   "nested_arrays_of_objects": [
