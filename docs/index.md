@@ -1,79 +1,52 @@
-# TOONS - Token Oriented Object Notation Serializer
+# TOONS
 
-**A high-performance TOON (Token Oriented Object Notation) parser and serializer for Python, implemented in Rust.**
+Fast TOON (Token Oriented Object Notation) parsing and serialization for Python.
 
-TOONS provides a Python interface that mirrors the API of Python's standard `json` module, making it easy to work with TOON-formatted strings and files. The TOON format is designed specifically for Large Language Models, achieving 30-60% fewer tokens than equivalent JSON.
+## Quick start
 
-## Key Features
+### Install
 
-- **🚀 Fast**: Implemented in Rust with PyO3 bindings for maximum performance
-- **📊 Token-Efficient**: 30-60% fewer tokens than JSON, ideal for LLM contexts
-- **🔄 Familiar API**: Mirrors Python's `json` module (`load`, `loads`, `dump`, `dumps`)
-- **✅ Spec Compliant**: Full support for TOON Specification v3.0
-- **🐍 Python Native**: Returns/accepts Python dict, list, str, int, float, bool, None
-- **📁 File & String**: Complete support for both file I/O and string operations
+```bash
+pip install toons
+```
 
-## Quick Example
+### Parse and serialize
 
 ```python
 import toons
 
-# Parse TOON string
 data = toons.loads("""
-name: John Doe
+name: Alice
 age: 30
 tags[3]: admin,developer,ops
 """)
-print(data)  # {'name': 'John Doe', 'age': 30, 'tags': ['admin', 'developer', 'ops']}
+print(data)
+# {'name': 'Alice', 'age': 30, 'tags': ['admin', 'developer', 'ops']}
 
-# Serialize to TOON
-data = {"name": "Alice", "age": 25}
-print(toons.dumps(data))
-# Output:
-# name: Alice
-# age: 25
+print(toons.dumps({"name": "Bob", "active": True}))
+# name: Bob
+# active: true
 ```
 
-## Why TOON?
+### Files
 
-The TOON format is significantly more compact than JSON, especially for arrays and nested structures:
+```python
+import toons
 
-**JSON (69 characters, ~26 tokens):**
-```json
-{"users": [{"name": "Alice", "age": 25}, {"name": "Bob", "age": 30}]}
+payload = {"users": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}
+
+with open("users.toon", "w") as f:
+    toons.dump(payload, f)
+
+with open("users.toon", "r") as f:
+    loaded = toons.load(f)
 ```
 
-**TOON (39 characters, ~16 tokens):**
-```
-users[2]{name,age}:
-  Alice,25
-  Bob,30
-```
+## Official specification
 
-This makes TOON ideal for:
+Refer to the [official TOON specification](https://github.com/toon-format/spec/blob/main/SPEC.md) for the formal grammar and rules:
 
-- LLM prompt contexts where tokens are limited
-- API responses in AI applications
-- Data serialization for machine learning pipelines
-- Any scenario where minimizing token count is important
+## Learn next
 
-## Architecture
-
-The library is fully implemented in Rust with a custom parser and serializer, using PyO3 to provide Python bindings. This architecture ensures:
-
-- High-performance parsing and serialization
-- Memory efficiency
-- Type safety
-- Full TOON Specification v3.0 compliance
-- Complete control over implementation details
-
-## Next Steps
-
-- [Installation & Getting Started](getting-started.md) - Get started with TOONS
-- [Examples](examples.md) - See practical usage examples
-- [API Reference](api-reference.md) - Complete API documentation
-- [TOON Specification](specification.md) - Learn about the TOON format
-
-## License
-
-This project is licensed under the Apache License 2.0.
+- [Data Types](data-types.md)
+- [Complex Examples](examples.md)

@@ -1,253 +1,101 @@
-# Data Types
+# Data types
 
-Complete guide to data type mapping between Python and TOON format.
+How TOONS maps Python values to TOON and back.
 
-## Overview
+## Mapping summary
 
-TOONS supports all JSON-compatible Python types with efficient serialization and precise round-trip fidelity.
+| Python | TOON | Notes |
+|---|---|---|
+| `dict` | object | Keys are strings; order preserved |
+| `list` | array | Inline or multiline |
+| `str` | string | Quoted only when needed |
+| `int` | integer | No scientific notation |
+| `float` | float | Normalized decimal |
+| `bool` | `true`/`false` | Lowercase |
+| `None` | `null` | |
 
-## Supported Types
+## Strings
 
-### Primitives
+Strings are unquoted when safe, quoted when required.
 
-#### Strings
-
-**Python → TOON:**
+Quote a string if it is empty, has leading/trailing whitespace, is numeric-like, equals `true`/`false`/`null`, starts with `-`, or contains reserved characters (`:`, `"`, `\`, `[`, `]`, `{`, `}`) or the active delimiter.
 
 ```python
 import toons
 
-# Unquoted (safe)
 print(toons.dumps({"name": "Alice"}))
 # name: Alice
 
-# Quoted (contains special characters)
 print(toons.dumps({"text": "Hello: World"}))
 # text: "Hello: World"
 
-# Quoted (starts with hyphen)
-print(toons.dumps({"value": "-123"}))
-# value: "-123"
-
-# Unicode and emoji (safe unquoted)
-print(toons.dumps({"emoji": "🎉", "text": "Hello мир"}))
-# emoji: 🎉
-# text: Hello мир
+print(toons.loads('text: "Line 1\\nLine 2"'))
+# {'text': 'Line 1\nLine 2'}
 ```
 
-**TOON → Python:**
+## Numbers
+
+TOON uses plain decimal notation. Scientific notation input is expanded.
 
 ```python
 import toons
 
-# Unquoted strings
-data = toons.loads("name: Alice")
-print(data)  # {'name': 'Alice'}
-
-# Quoted strings with escapes
-data = toons.loads('text: "Line 1\\nLine 2"')
-print(data)  # {'text': 'Line 1\nLine 2'}
-```
-
-**Quoting Rules:**
-
-A string MUST be quoted if it:
-
-1. Is empty (`""`)
-2. Has leading/trailing whitespace
-3. Equals `true`, `false`, or `null`
-4. Is numeric-like (e.g., `"42"`, `"3.14"`, `"1e6"`)
-5. Contains: `:`, `"`, `\`, `[`, `]`, `{`, `}`
-6. Contains newline, tab, or carriage return
-7. Contains the active delimiter
-8. Equals `-` or starts with `-`
-
-**Valid Escape Sequences:**
-
-| Escape | Result |
-|--------|--------|
-| `\\` | `\` |
-| `\"` | `"` |
-| `\n` | newline |
-| `\r` | carriage return |
-| `\t` | tab |
-
-#### Numbers
-
-**Integers:**
-
-```python
-import toons
-
-# Positive
-print(toons.dumps({"count": 42}))
+print(toons.dumps({"count": 42, "pi": 3.14}))
 # count: 42
-
-# Negative
-print(toons.dumps({"balance": -100}))
-# balance: -100
-
-# Zero
-print(toons.dumps({"value": 0}))
-# value: 0
-
-# Large numbers
-print(toons.dumps({"big": 9007199254740991}))
-# big: 9007199254740991
+# pi: 3.14
 ```
 
-**Floats:**
+## Booleans and null
 
 ```python
 import toons
 
-# Decimal
-print(toons.dumps({"price": 19.99}))
-# price: 19.99
-
-# Negative decimal
-print(toons.dumps({"temp": -3.14}))
-# temp: -3.14
-
-# Very small (no scientific notation)
-print(toons.dumps({"epsilon": 0.000001}))
-# epsilon: 0.000001
-
-# Very large (no scientific notation)
-print(toons.dumps({"big": 1000000.0}))
-# big: 1000000.0
-```
-
-**Special Cases:**
-
-- `-0` is normalized to `0`
-- Scientific notation input (e.g., `1e6`) is expanded to `1000000`
-- Sufficient precision maintained for round-trip fidelity
-
-#### Booleans
-
-```python
-import toons
-
-data = {"active": True, "verified": False}
-print(toons.dumps(data))
+print(toons.dumps({"active": True, "value": None}))
 # active: true
-# verified: false
-
-# Parsing
-data = toons.loads("active: true\nverified: false")
-print(data)  # {'active': True, 'verified': False}
-```
-
-**Note:** TOON uses lowercase `true`/`false`, not `True`/`False`.
-
-#### Null
-
-```python
-import toons
-
-data = {"value": None, "optional": None}
-print(toons.dumps(data))
 # value: null
-# optional: null
-
-# Parsing
-data = toons.loads("value: null")
-print(data)  # {'value': None}
 ```
 
-### Collections
+## Objects (dict)
 
-#### Dictionaries (Objects)
-
-**Simple Objects:**
+Unquoted keys must match $^[A-Za-z_][\w.]*$$. Other keys are quoted.
 
 ```python
 import toons
 
-user = {
-    "id": 123,
-    "name": "Alice",
-    "email": "alice@example.com"
-}
-
-print(toons.dumps(user))
-# id: 123
-# name: Alice
-# email: alice@example.com
-```
-
-**Nested Objects:**
-
-```python
-import toons
-
-data = {
-    "user": {
-        "profile": {
-            "name": "Alice",
-            "age": 30
-        }
-    }
-}
-
-print(toons.dumps(data))
-# user:
-#   profile:
-#     name: Alice
-#     age: 30
-```
-
-**Key Requirements:**
-
-- Keys must be strings
-- Unquoted keys must match `^[A-Za-z_][\w.]*$`
-- Other keys must be quoted
-- Key order is preserved
-
-```python
-import toons
-
-# Valid unquoted keys
-data = {"name": "Alice", "user_id": 123, "api.version": "1.0"}
-print(toons.dumps(data))
-# name: Alice
-# user_id: 123
-# api.version: 1.0
-
-# Keys requiring quotes
-data = {"full name": "Alice", "user-id": 123}
-print(toons.dumps(data))
+print(toons.dumps({"user_id": 1, "full name": "Alice"}))
+# user_id: 1
 # "full name": Alice
-# "user-id": 123
 ```
 
-#### Lists (Arrays)
+## Arrays (list)
 
-**Primitive Arrays (Inline):**
+Primitive arrays are inline; mixed or nested arrays are multiline.
 
 ```python
 import toons
 
-# Numbers
-data = {"numbers": [1, 2, 3, 4, 5]}
-print(toons.dumps(data))
-# numbers[5]: 1,2,3,4,5
-
-# Strings
-data = {"tags": ["python", "rust", "toon"]}
-print(toons.dumps(data))
+print(toons.dumps({"tags": ["python", "rust", "toon"]}))
 # tags[3]: python,rust,toon
 
-# Mixed primitives
-data = {"mixed": [42, "hello", True, None]}
-print(toons.dumps(data))
-# mixed[4]: 42,hello,true,null
+print(toons.dumps({"items": [1, {"a": 1}, True]}))
+# items[3]:
+#   - 1
+#   - a: 1
+#   - true
+```
 
-# Empty array
-data = {"empty": []}
+## Tabular arrays
+
+Uniform arrays of objects can serialize in a compact tabular form.
+
+```python
+import toons
+
+data = {"users": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}
 print(toons.dumps(data))
-# empty[0]:
+# users[2]{id,name}:
+#   1,A
+#   2,B
 ```
 
 **Uniform Object Arrays (Tabular):**

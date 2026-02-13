@@ -1,372 +1,61 @@
-# Contributing to TOONS
+# Contributing
 
-Thank you for your interest in contributing to TOONS! This guide will help you get started.
+Thanks for helping improve TOONS.
 
-## Code of Conduct
+## Quick steps
 
-By participating in this project, you agree to maintain a respectful and inclusive environment for all contributors.
+1. Fork the repo and create a branch.
+2. Set up the dev environment.
+3. Make changes with tests.
+4. Run checks and open a PR.
 
-## Getting Started
+## Prerequisites
 
-### 1. Fork and Clone
+- Python 3.7+
+- Rust (latest stable)
+- Git
+- maturin
+
+## Setup
 
 ```bash
-# Fork the repository on GitHub, then clone your fork
-git clone https://github.com/YOUR_USERNAME/toons.git
-cd toons
+pip install -r requirements-dev.txt
+maturin develop
+pre-commit install
 ```
 
-### 2. Set Up Development Environment
+## Build
 
 ```bash
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Build the extension in development mode
+# Debug build (fast)
 maturin develop
 
-# Install pre-commit hooks
-pre-commit install
+# Release build (optimized)
+maturin develop --release
+```
 
-# Verify everything works
+## Tests
+
+```bash
 pytest
-```
-
-### 3. Create a Branch
-
-```bash
-# Create a feature branch
-git checkout -b feat/your-feature-name
-
-# Or a fix branch
-git checkout -b fix/issue-description
-```
-
-## Development Workflow
-
-### Making Changes
-
-1. **Write your code** following the project's style guidelines
-2. **Add tests** for your changes
-3. **Update documentation** if needed
-4. **Run tests** to ensure everything passes
-5. **Run linters** to check code quality
-
-```bash
-# Run tests
-pytest
-
-# Run linters
-pre-commit run -a
-
-# Or manually
-ruff check .
-ruff format .
-```
-
-### Commit Guidelines
-
-We use [Conventional Commits](https://www.conventionalcommits.org/) for all commit messages:
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer(s)]
-```
-
-#### Commit Types
-
-- **feat**: A new feature
-- **fix**: A bug fix
-- **docs**: Documentation only changes
-- **style**: Changes that don't affect code meaning (formatting, etc.)
-- **refactor**: Code change that neither fixes a bug nor adds a feature
-- **test**: Adding missing tests or correcting existing tests
-- **chore**: Changes to build process or auxiliary tools
-- **perf**: Performance improvement
-- **ci**: CI/CD configuration changes
-- **build**: Changes affecting build system or dependencies
-
-#### Commit Examples
-
-```bash
-# Feature
-git commit -m "feat(parser): add support for custom delimiters"
-
-# Bug fix
-git commit -m "fix(serializer): handle empty objects correctly"
-
-# Documentation
-git commit -m "docs(api): add examples for dumps() function"
-
-# Test
-git commit -m "test(loads): add edge case for nested arrays"
-
-# Breaking change
-git commit -m "feat(api)!: change return type of loads()
-
-BREAKING CHANGE: loads() now returns None for empty input instead of empty dict"
-```
-
-#### Scope Examples
-
-- `parser` - Changes to parsing logic
-- `serializer` - Changes to serialization logic
-- `api` - Changes to public API
-- `tests` - Test-related changes
-- `docs` - Documentation changes
-- `build` - Build system changes
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/unit/test_loads.py
-
-# Run with coverage
-pytest --cov=toons
-
-# Run with verbose output
 pytest -v
 ```
 
-**Important:** All tests must pass before submitting a PR.
-
-### Code Quality
+## Code quality
 
 ```bash
-# Run all pre-commit hooks
 pre-commit run -a
-
-# Or run individual tools
-ruff check .        # Linting
-ruff format .       # Formatting
-cargo fmt          # Rust formatting
-cargo clippy       # Rust linting
+ruff check .
+ruff format .
+cargo fmt
+cargo clippy
 ```
 
-## Contribution Guidelines
+## PR notes
 
-### Code Style
-
-**Python:**
-- Follow PEP 8 style guide
-- Use type hints where appropriate
-- Maximum line length: 79 characters
-- Use descriptive variable names
-
-**Rust:**
-- Follow Rust standard style guide
-- Use `cargo fmt` for formatting
-- Use `cargo clippy` for linting
-
-### Testing Requirements
-
-All contributions must include appropriate tests:
-
-1. **Unit tests** for new functions/features
-2. **Integration tests** for complex interactions
-3. **Regression tests** for bug fixes
-
-**Test Guidelines:**
-- Use pytest exclusively (no unittest)
-- Use `@pytest.mark.parametrize` for multiple test cases
-- Write descriptive test names: `test_<function>_<scenario>`
-- Include docstrings explaining what's being tested
-- Assert on complete output, not partial strings
-
-Example:
-
-```python
-import pytest
-import toons
-
-class TestNewFeature:
-    """Test the new feature."""
-
-    @pytest.mark.parametrize(
-        "input_data,expected",
-        [
-            ({"key": "value"}, "key: value"),
-            ({"number": 42}, "number: 42"),
-        ],
-    )
-    def test_new_feature(self, input_data, expected):
-        """Test new feature with various inputs."""
-        result = toons.dumps(input_data)
-        assert result == expected
-```
-
-### Documentation
-
-Update documentation for any user-facing changes:
-
-- **API changes**: Update `docs/api-reference.md`
-- **New features**: Add examples to `docs/examples.md`
-- **Usage changes**: Update `docs/getting-started.md`
-- **README**: Keep the main README concise, link to full docs
-
-### Pull Request Process
-
-1. **Ensure all tests pass**
-   ```bash
-   pytest
-   pre-commit run -a
-   ```
-
-2. **Update documentation** if needed
-
-3. **Push your branch**
-   ```bash
-   git push origin feat/your-feature-name
-   ```
-
-4. **Create a Pull Request** on GitHub
-   - Use a descriptive title following conventional commits
-   - Provide a clear description of changes
-   - Reference any related issues
-   - Include screenshots for UI changes (if applicable)
-
-5. **Respond to review feedback**
-   - Address reviewer comments
-   - Make requested changes
-   - Push additional commits to your branch
-
-6. **Wait for approval**
-   - At least one maintainer approval required
-   - All CI checks must pass
-
-### Pull Request Template
-
-```markdown
-## Description
-Brief description of the changes
-
-## Type of Change
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
-
-## Related Issues
-Fixes #<issue_number>
-
-## Testing
-- [ ] Tests pass locally
-- [ ] New tests added for new functionality
-- [ ] Documentation updated
-
-## Checklist
-- [ ] Code follows project style guidelines
-- [ ] Self-review completed
-- [ ] Comments added for complex code
-- [ ] Documentation updated
-- [ ] No new warnings generated
-- [ ] Tests added and passing
-- [ ] Conventional commit format used
-```
-
-## Types of Contributions
-
-### Bug Reports
-
-Found a bug? Please create an issue with:
-
-- **Clear title** describing the problem
-- **Steps to reproduce** the issue
-- **Expected behavior** vs actual behavior
-- **Code example** demonstrating the bug
-- **Environment details** (Python version, OS, TOONS version)
-
-Example:
-
-````markdown
-## Bug: loads() fails on empty tabular arrays
-
-### Steps to Reproduce
-```python
-import toons
-data = toons.loads("users[0]{name,age}:")
-```
-
-### Expected Behavior
-Should return `{'users': []}`
-
-### Actual Behavior
-Raises `ValueError: Invalid TOON format`
-
-### Environment
-- TOONS version: 0.1.2
-- Python version: 3.10.5
-- OS: macOS 14.0
-````
-
-### Feature Requests
-
-Have an idea? Create an issue with:
-
-- **Clear description** of the proposed feature
-- **Use case** explaining why it's needed
-- **Example usage** showing how it would work
-- **Alternatives considered**
-
-### Documentation Improvements
-
-Documentation contributions are always welcome:
-
-- Fix typos or unclear explanations
-- Add more examples
-- Improve API documentation
-- Add tutorials or guides
-
-### Performance Improvements
-
-For performance-related contributions:
-
-- Include **benchmarks** showing improvement
-- Explain **trade-offs** if any
-- Ensure **backward compatibility**
-
-## Review Process
-
-### For Contributors
-
-- Be responsive to feedback
-- Be patient - reviews take time
-- Ask questions if feedback is unclear
-- Be open to suggestions
-
-### For Reviewers
-
-- Be respectful and constructive
-- Explain reasoning behind suggestions
-- Acknowledge good work
-- Focus on the code, not the person
-
-## Community
-
-### Getting Help
-
-- **GitHub Issues**: For bugs and feature requests
-- **GitHub Discussions**: For questions and general discussion
-- **Documentation**: Check the [docs](https://github.com/alesanfra/toons/tree/main/docs) first
-
-### Recognition
-
-Contributors are recognized in:
-
-- GitHub contributors page
-- Release notes (for significant contributions)
-- Project documentation (for major features)
-
-## License
-
-By contributing to TOONS, you agree that your contributions will be licensed under the same license as the project (Apache License 2.0).
+- Keep changes focused and documented.
+- Add tests for new behavior or bug fixes.
+- Update docs for user-facing changes.
 
 ## Questions?
 
@@ -379,7 +68,516 @@ If you have questions about contributing, feel free to:
 Thank you for contributing to TOONS! 🎉
 
 ## See Also
-
-- [Development Guide](development.md) - Development setup and workflow
-- [Testing Guide](testing.md) - Testing conventions
 - [Code of Conduct](https://www.contributor-covenant.org/) - Community guidelines
+
+## Testing guide
+
+Comprehensive testing conventions for the TOONS project.
+
+### Overview
+
+TOONS uses **pytest** exclusively for testing. All tests must follow the conventions outlined in this guide to ensure consistency and maintainability.
+
+### Test framework
+
+#### Requirements
+
+- ✅ **Use pytest only** - No unittest allowed
+- ✅ **Use `@pytest.mark.parametrize`** for parameterized tests
+- ✅ **Write readable, human-friendly test cases**
+- ✅ **Make assertions on complete output** when testing serialization
+
+#### Test structure
+
+```
+tests/
+├── conftest.py              # pytest configuration
+├── data/                    # Test data files
+│   ├── complex_test.toon
+│   └── complex_test.json
+└── unit/                    # Unit tests
+	├── test_loads.py        # Tests for loads()
+	├── test_dumps.py        # Tests for dumps()
+	├── test_spec_compliance.py
+	└── test_*.py
+```
+
+### Writing tests
+
+#### Basic test structure
+
+```python
+import pytest
+import toons
+
+class TestFeature:
+	"""Test a specific feature or function."""
+
+	def test_simple_case(self):
+		"""Test description."""
+		result = toons.loads("name: Alice")
+		assert result == {"name": "Alice"}
+```
+
+#### Parametrized tests
+
+Use `@pytest.mark.parametrize` for multiple test cases:
+
+```python
+import pytest
+import toons
+
+class TestDumps:
+	"""Test the dumps() function."""
+
+	@pytest.mark.parametrize(
+		"input_data,expected",
+		[
+			({"name": "Alice"}, "name: Alice"),
+			({"age": 30}, "age: 30"),
+			({"active": True}, "active: true"),
+		],
+	)
+	def test_simple_values(self, input_data, expected):
+		"""Test dumps with simple values."""
+		result = toons.dumps(input_data)
+		assert result == expected
+```
+
+#### Naming conventions
+
+**Test files:**
+- `test_<function_name>.py` - One file per main function
+- Example: `test_loads.py`, `test_dumps.py`
+
+**Test classes:**
+- `TestFunctionName` or `TestFeatureName`
+- Example: `TestLoads`, `TestDumpsObjects`
+
+**Test methods:**
+- `test_<function>_<scenario>`
+- Be descriptive
+- Example: `test_loads_nested_objects`, `test_dumps_empty_array`
+
+#### Docstrings
+
+Every test should have a clear docstring:
+
+```python
+def test_loads_tabular_format(self):
+	"""Test parsing of TOON tabular format for homogeneous arrays.
+
+	Verifies that arrays of similar objects are correctly parsed
+	from the compact tabular representation defined in TOON spec 1.3.
+	"""
+	toon_str = """
+	users[2]{name,age}:
+	  Alice,30
+	  Bob,25
+	"""
+	result = toons.loads(toon_str)
+	assert result == {
+		"users": [
+			{"name": "Alice", "age": 30},
+			{"name": "Bob", "age": 25}
+		]
+	}
+```
+
+### Test categories
+
+#### Unit tests - loads()
+
+Test the `loads()` function:
+
+```python
+class TestLoads:
+	"""Test toons.loads() function."""
+
+	@pytest.mark.parametrize(
+		"toon_input,expected",
+		[
+			("name: Alice", {"name": "Alice"}),
+			("age: 30", {"age": 30}),
+			("active: true", {"active": True}),
+			("value: null", {"value": None}),
+		],
+	)
+	def test_primitives(self, toon_input, expected):
+		"""Test parsing primitive values."""
+		result = toons.loads(toon_input)
+		assert result == expected
+
+	def test_nested_objects(self):
+		"""Test parsing nested objects."""
+		toon_str = """
+		user:
+		  name: Alice
+		  age: 30
+		"""
+		result = toons.loads(toon_str)
+		assert result == {"user": {"name": "Alice", "age": 30}}
+
+	@pytest.mark.parametrize(
+		"invalid_input",
+		[
+			"invalid: [unclosed",
+			"missing colon",
+			'bad: "unterminated',
+		],
+	)
+	def test_invalid_syntax(self, invalid_input):
+		"""Test that invalid TOON raises ValueError."""
+		with pytest.raises(ValueError):
+			toons.loads(invalid_input)
+```
+
+#### Unit tests - dumps()
+
+Test the `dumps()` function:
+
+```python
+class TestDumps:
+	"""Test toons.dumps() function."""
+
+	@pytest.mark.parametrize(
+		"input_data,expected",
+		[
+			({"name": "Alice"}, "name: Alice"),
+			({"tags": ["a", "b"]}, "tags[2]: a,b"),
+		],
+	)
+	def test_serialization(self, input_data, expected):
+		"""Test basic serialization."""
+		result = toons.dumps(input_data)
+		assert result == expected
+
+	def test_tabular_format(self):
+		"""Test tabular format for uniform object arrays."""
+		data = {
+			"users": [
+				{"name": "Alice", "age": 30},
+				{"name": "Bob", "age": 25}
+			]
+		}
+		result = toons.dumps(data)
+		expected = "users[2]{name,age}:\n  Alice,30\n  Bob,25"
+		assert result == expected
+```
+
+#### Round-trip tests
+
+Verify data survives serialization cycles:
+
+```python
+class TestRoundTrip:
+	"""Test round-trip serialization."""
+
+	@pytest.mark.parametrize(
+		"original",
+		[
+			{"name": "Alice", "age": 30},
+			{"tags": ["python", "rust"]},
+			{"nested": {"key": "value"}},
+			[1, 2, 3, 4, 5],
+		],
+	)
+	def test_roundtrip(self, original):
+		"""Test data survives dumps -> loads cycle."""
+		toon_str = toons.dumps(original)
+		parsed = toons.loads(toon_str)
+		assert parsed == original
+```
+
+#### Specification compliance tests
+
+Verify TOON Spec v3.0 compliance:
+
+```python
+class TestSpecCompliance:
+	"""Test TOON Specification v3.0 compliance."""
+
+	def test_array_count_notation(self):
+		"""Test that arrays include element count [N]."""
+		data = {"tags": ["a", "b", "c"]}
+		result = toons.dumps(data)
+		assert "[3]:" in result
+
+	def test_tabular_format_header(self):
+		"""Test tabular format header structure."""
+		data = {
+			"users": [
+				{"name": "Alice", "age": 30},
+				{"name": "Bob", "age": 25}
+			]
+		}
+		result = toons.dumps(data)
+		assert "users[2]{name,age}:" in result
+
+	def test_two_space_indentation(self):
+		"""Test that nested objects use 2-space indentation."""
+		data = {"user": {"name": "Alice"}}
+		result = toons.dumps(data)
+		lines = result.split("\n")
+		assert lines[1].startswith("  ")  # 2 spaces
+		assert not lines[1].startswith("   ")  # Not 3 spaces
+```
+
+### Test data organization
+
+#### Using constants
+
+```python
+BASIC_OBJECTS = [
+	({"name": "Alice"}, "name: Alice"),
+	({"age": 30}, "age: 30"),
+]
+
+COMPLEX_STRUCTURES = [
+	{
+		"users": [
+			{"name": "Alice", "age": 30},
+			{"name": "Bob", "age": 25}
+		]
+	},
+	# More complex test cases...
+]
+
+class TestDumps:
+	@pytest.mark.parametrize("input_data,expected", BASIC_OBJECTS)
+	def test_basic_objects(self, input_data, expected):
+		"""Test basic object serialization."""
+		result = toons.dumps(input_data)
+		assert result == expected
+```
+
+#### Using fixtures
+
+```python
+import pytest
+
+@pytest.fixture
+def sample_user():
+	"""Provide sample user data."""
+	return {"name": "Alice", "age": 30, "role": "admin"}
+
+@pytest.fixture
+def sample_users():
+	"""Provide sample user array."""
+	return [
+		{"name": "Alice", "age": 30},
+		{"name": "Bob", "age": 25}
+	]
+
+class TestFeature:
+	def test_with_fixture(self, sample_user):
+		"""Test using fixture data."""
+		result = toons.dumps(sample_user)
+		assert "name: Alice" in result
+```
+
+#### Using test files
+
+```python
+import pytest
+from pathlib import Path
+
+@pytest.fixture
+def test_data_dir():
+	"""Get test data directory."""
+	return Path(__file__).parent.parent / "data"
+
+class TestFileOperations:
+	def test_load_file(self, test_data_dir):
+		"""Test loading from test data file."""
+		file_path = test_data_dir / "complex_test.toon"
+		with open(file_path, "r") as f:
+			result = toons.load(f)
+		assert isinstance(result, dict)
+```
+
+### Error testing
+
+#### Expected exceptions
+
+```python
+import pytest
+
+class TestErrors:
+	"""Test error handling."""
+
+	@pytest.mark.parametrize(
+		"invalid_input",
+		[
+			"invalid: [unclosed",
+			"missing colon value",
+			'bad: "unterminated',
+		],
+	)
+	def test_parse_errors(self, invalid_input):
+		"""Test that invalid TOON raises ValueError."""
+		with pytest.raises(ValueError):
+			toons.loads(invalid_input)
+
+	def test_error_message(self):
+		"""Test that error messages are descriptive."""
+		with pytest.raises(ValueError) as exc_info:
+			toons.loads("invalid: [syntax")
+
+		error_msg = str(exc_info.value)
+		assert len(error_msg) > 0  # Has error message
+```
+
+### Running tests
+
+#### Basic commands
+
+```bash
+# Run all tests
+pytest
+
+# Run specific file
+pytest tests/unit/test_loads.py
+
+# Run specific class
+pytest tests/unit/test_dumps.py::TestDumpsObjects
+
+# Run specific test
+pytest tests/unit/test_loads.py::TestLoads::test_primitives
+
+# Run tests matching pattern
+pytest -k "tabular"
+
+# Run with verbose output
+pytest -v
+
+# Run with output capture disabled (see print statements)
+pytest -v -s
+```
+
+#### Coverage
+
+```bash
+# Run with coverage
+pytest --cov=toons
+
+# Generate HTML report
+pytest --cov=toons --cov-report=html
+
+# View coverage report
+open htmlcov/index.html
+
+# Show missing lines
+pytest --cov=toons --cov-report=term-missing
+```
+
+#### Markers
+
+Use markers to categorize tests:
+
+```python
+import pytest
+
+@pytest.mark.slow
+def test_large_dataset():
+	"""Test with large dataset (slow)."""
+	pass
+
+@pytest.mark.spec_compliance
+def test_spec_feature():
+	"""Test TOON spec compliance."""
+	pass
+```
+
+Run specific markers:
+
+```bash
+# Run only slow tests
+pytest -m slow
+
+# Run everything except slow tests
+pytest -m "not slow"
+
+# Run spec compliance tests
+pytest -m spec_compliance
+```
+
+### Best practices
+
+#### DO ✅
+
+```python
+import pytest
+import toons
+
+class TestFeature:
+	"""Test a specific feature."""
+
+	@pytest.mark.parametrize(
+		"input_data,expected",
+		[
+			({"name": "Alice"}, "name: Alice"),
+			({"age": 30}, "age: 30"),
+		],
+	)
+	def test_something(self, input_data, expected):
+		"""Clear docstring explaining the test."""
+		result = toons.dumps(input_data)
+		assert result == expected  # Assert on complete output
+```
+
+#### DON'T ❌
+
+```python
+import unittest  # ❌ Don't use unittest
+
+class TestFeature(unittest.TestCase):  # ❌ Don't inherit from TestCase
+	def test_something(self):
+		cases = [...]  # ❌ Don't use loops, use parametrize
+		for case in cases:
+			result = toons.dumps(case)
+			assert "something" in result  # ❌ Don't assert on partial strings
+```
+
+### Continuous integration
+
+Tests run automatically on:
+
+- **Pull Requests** - All tests must pass
+- **Commits to main** - Verify no regressions
+- **Multiple Python versions** - 3.7, 3.8, 3.9, 3.10, 3.11
+
+Ensure your tests:
+
+- Run quickly (< 1 second each when possible)
+- Are deterministic (no random failures)
+- Clean up resources (files, connections, etc.)
+- Don't depend on external services
+
+### Coverage requirements
+
+- **Overall coverage**: > 95%
+- **New code**: 100% coverage
+- **Critical paths**: 100% coverage
+- **Error handling**: All error paths tested
+
+### Performance testing
+
+For performance-sensitive code:
+
+```python
+import time
+import pytest
+
+def test_performance():
+	"""Test that dumps() is fast enough."""
+	data = {"users": [{"name": f"User{i}", "age": i} for i in range(100)]}
+
+	start = time.time()
+	for _ in range(100):
+		toons.dumps(data)
+	elapsed = time.time() - start
+
+	# Should complete 100 iterations in < 1 second
+	assert elapsed < 1.0, f"Too slow: {elapsed:.2f}s"
+```

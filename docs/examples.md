@@ -1,263 +1,89 @@
-# Examples
+# Complex examples
 
-Practical examples demonstrating TOONS usage in various scenarios.
+Examples that use additional arguments for parsing and serialization.
 
-## Basic Examples
-
-### Parsing Simple Objects
+## Custom delimiters
 
 ```python
 import toons
 
-# Single-line TOON
-data = toons.loads("name: Alice")
-print(data)  # {'name': 'Alice'}
-
-# Multi-line object
-toon_str = """
-name: Alice
-age: 30
-active: true
-"""
-data = toons.loads(toon_str)
-print(data)
-# {'name': 'Alice', 'age': 30, 'active': True}
+data = {"users": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}
+print(toons.dumps(data, delimiter="|"))
+# users[2|]{id|name}:
+#   1|A
+#   2|B
 ```
 
-### Serializing Objects
+## Key folding (flatten nested keys)
 
 ```python
 import toons
 
-# Simple object
-user = {"name": "Bob", "age": 25, "active": False}
-print(toons.dumps(user))
-# Output:
-# name: Bob
-# age: 25
-# active: false
-```
-
-## Working with Arrays
-
-### Primitive Arrays
-
-```python
-import toons
-
-# Parse array
-data = toons.loads("tags[3]: python,rust,javascript")
-print(data)  # {'tags': ['python', 'rust', 'javascript']}
-
-# Serialize array
-tags = {"tags": ["admin", "developer", "ops"]}
-print(toons.dumps(tags))
-# Output: tags[3]: admin,developer,ops
-```
-
-### Arrays of Objects (Tabular Format)
-
-The tabular format is automatically used for uniform object arrays, providing significant token savings:
-
-```python
-import toons
-
-# Serialize uniform objects
-users = {
-    "users": [
-        {"name": "Alice", "age": 30, "role": "admin"},
-        {"name": "Bob", "age": 25, "role": "user"},
-        {"name": "Charlie", "age": 35, "role": "moderator"}
-    ]
-}
-
-print(toons.dumps(users))
-# Output:
-# users[3]{name,age,role}:
-#   Alice,30,admin
-#   Bob,25,user
-#   Charlie,35,moderator
-
-# Parse tabular format
-toon_str = """
-users[2]{name,age}:
-  Alice,30
-  Bob,25
-"""
-data = toons.loads(toon_str)
-print(data)
-# {'users': [{'name': 'Alice', 'age': 30}, {'name': 'Bob', 'age': 25}]}
-```
-
-### Mixed Arrays
-
-When arrays contain different types or non-uniform objects:
-
-```python
-import toons
-
-# Mixed array with primitives and objects
-data = {
-    "items": [
-        42,
-        "hello",
-        {"name": "Alice", "age": 30},
-        True
-    ]
-}
-
-print(toons.dumps(data))
-# Output:
-# items[4]:
-#   - 42
-#   - hello
-#   - name: Alice
-#     age: 30
-#   - true
-```
-
-## Nested Structures
-
-### Nested Objects
-
-```python
-import toons
-
-# Deep nesting
-data = {
-    "company": {
-        "name": "TechCorp",
-        "location": {
-            "city": "San Francisco",
-            "country": "USA",
-            "coordinates": {
-                "lat": 37.7749,
-                "lon": -122.4194
-            }
-        }
+payload = {
+    "user": {
+        "profile": {"name": "Alice", "role": "admin"},
+        "prefs": {"theme": "dark"},
     }
 }
 
-print(toons.dumps(data))
-# Output:
-# company:
-#   name: TechCorp
-#   location:
-#     city: San Francisco
-#     country: USA
-#     coordinates:
-#       lat: 37.7749
-#       lon: -122.4194
+print(toons.dumps(payload, key_folding="safe"))
+# user.profile.name: Alice
+# user.profile.role: admin
+# user.prefs.theme: dark
 ```
 
-### Objects with Arrays
+## Key folding with depth limit
 
 ```python
 import toons
 
-# Object containing arrays
-project = {
-    "name": "TOONS",
-    "version": "0.1.2",
-    "languages": ["Python", "Rust"],
-    "maintainers": [
-        {"name": "Alice", "role": "lead"},
-        {"name": "Bob", "role": "contributor"}
-    ]
+payload = {
+    "a": {"b": {"c": {"d": 1}}}
 }
 
-print(toons.dumps(project))
-# Output:
-# name: TOONS
-# version: 0.1.2
-# languages[2]: Python,Rust
-# maintainers[2]{name,role}:
-#   Alice,lead
-#   Bob,contributor
+print(toons.dumps(payload, key_folding="on", flatten_depth=2))
+# a.b:
+#   c:
+#     d: 1
 ```
 
-## File Operations
-
-### Reading and Writing Files
+## Parsing with relaxed rules
 
 ```python
 import toons
 
-# Write data to file
-data = {
-    "config": {
-        "database": "postgresql",
-        "host": "localhost",
-        "port": 5432
-    }
-}
+toon_str = """
+items[2]:
+  - 1
 
-with open("config.toon", "w") as f:
-    toons.dump(data, f)
-    print("✓ Saved to config.toon")
+  - 2
+"""
 
-# Read data from file
-with open("config.toon", "r") as f:
-    loaded = toons.load(f)
-    print("✓ Loaded from config.toon")
-    print(loaded)
+data = toons.loads(toon_str, strict=False)
+print(data)  # {'items': [1, 2]}
 ```
 
-### Configuration Files
-
-TOON is excellent for configuration files due to its readability:
-
-**config.toon:**
-```
-server:
-  host: 0.0.0.0
-  port: 8080
-  debug: false
-database:
-  engine: postgresql
-  host: localhost
-  port: 5432
-  credentials:
-    user: admin
-    password: secret
-allowed_ips[3]: 192.168.1.1,192.168.1.2,192.168.1.3
-```
-
-**Loading configuration:**
-```python
-import toons
-
-def load_config(filename):
-    with open(filename, "r") as f:
-        return toons.load(f)
-
-config = load_config("config.toon")
-print(f"Server running on {config['server']['host']}:{config['server']['port']}")
-```
-
-## Real-World Use Cases
-
-### API Response Serialization
+## Expanding paths while parsing
 
 ```python
 import toons
 
-# Serialize API response for LLM context
-def serialize_users_for_llm(users):
-    """Serialize user data in token-efficient TOON format."""
-    data = {"users": users}
-    return toons.dumps(data)
+toon_str = "path: ~/data/input.txt"
+data = toons.loads(toon_str, expand_paths="safe")
+print(data["path"])
+```
 
-users = [
-    {"id": 1, "name": "Alice", "email": "alice@example.com"},
-    {"id": 2, "name": "Bob", "email": "bob@example.com"},
-    {"id": 3, "name": "Charlie", "email": "charlie@example.com"}
-]
+## Custom indentation for output
 
-# TOON format (47 characters, ~16 tokens)
-toon_output = serialize_users_for_llm(users)
-print(toon_output)
-# users[3]{id,name,email}:
+```python
+import toons
+
+data = {"config": {"host": "localhost", "port": 5432}}
+print(toons.dumps(data, indent=4))
+# config:
+#     host: localhost
+#     port: 5432
+
 #   1,Alice,alice@example.com
 #   2,Bob,bob@example.com
 #   3,Charlie,charlie@example.com
