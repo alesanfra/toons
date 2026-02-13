@@ -994,7 +994,7 @@ impl<'a> Parser<'a> {
         let mut in_quotes = false;
         let mut escape_next = false;
 
-        for (i, ch) in line.chars().enumerate() {
+        for (i, ch) in line.char_indices() {
             if escape_next {
                 escape_next = false;
                 continue;
@@ -1022,7 +1022,7 @@ impl<'a> Parser<'a> {
         let mut in_quotes = false;
         let mut escape_next = false;
 
-        for (i, ch) in line.chars().enumerate() {
+        for (i, ch) in line.char_indices() {
             if escape_next {
                 escape_next = false;
                 continue;
@@ -1112,7 +1112,7 @@ impl<'a> Parser<'a> {
         let mut first_delim_pos = None;
         let mut first_colon_pos = None;
 
-        for (i, ch) in line.chars().enumerate() {
+        for (i, ch) in line.char_indices() {
             if escape_next {
                 escape_next = false;
                 continue;
@@ -1147,16 +1147,18 @@ impl<'a> Parser<'a> {
         let mut result = Vec::new();
         let mut start = 0;
         let mut in_quotes = false;
-        let chars: Vec<char> = s.chars().collect();
+        let mut prev_ch = '\0';
 
-        for i in 0..chars.len() {
-            if chars[i] == '"' && (i == 0 || chars[i - 1] != '\\') {
+        // Track byte positions while iterating through characters
+        for (byte_pos, ch) in s.char_indices() {
+            if ch == '"' && prev_ch != '\\' {
                 in_quotes = !in_quotes;
-            } else if chars[i] == delimiter && !in_quotes {
-                let segment = &s[start..i];
+            } else if ch == delimiter && !in_quotes {
+                let segment = &s[start..byte_pos];
                 result.push(segment.trim());
-                start = i + delimiter.len_utf8();
+                start = byte_pos + ch.len_utf8();
             }
+            prev_ch = ch;
         }
 
         if start < s.len() {
@@ -1172,7 +1174,7 @@ impl<'a> Parser<'a> {
         let mut in_quotes = false;
         let mut escape_next = false;
 
-        for (i, ch) in s.chars().enumerate() {
+        for (i, ch) in s.char_indices() {
             if escape_next {
                 escape_next = false;
                 continue;
