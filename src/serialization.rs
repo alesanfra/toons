@@ -189,10 +189,6 @@ fn needs_quoting(s: &str, delimiter: char) -> bool {
         match ch {
             ':' | '"' | '\\' | '[' | ']' | '{' | '}' | '\n' | '\r' | '\t' => return true,
             _ if ch == delimiter => return true,
-            // Non-alphanumeric characters in Latin-1 Supplement range (U+0080–U+00FF)
-            // need quoting to avoid encoding ambiguities (e.g., ®, ©, ¢)
-            // but alphanumeric characters like é, ñ, ü don't need quoting
-            _ if (ch as u32 >= 0x80 && ch as u32 <= 0xFF && !ch.is_alphanumeric()) => return true,
             _ => {}
         }
     }

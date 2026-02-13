@@ -70,7 +70,7 @@ edge_cases:
     japanese: こんにちは世界
     arabic: مرحبا بالعالم
     russian: Привет мир
-    others: "®"
+    others: ®
 nested_arrays_of_objects[2]:
   - category: fruits
     items[2]{name,color,price}:
