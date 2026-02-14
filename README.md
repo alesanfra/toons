@@ -122,3 +122,7 @@ See [Contributing Guide](https://toons.readthedocs.io/en/stable/contributing/) f
 ## License
 
 This project is licensed under the Apache License 2.0. See LICENSE file for details.
+
+## Why isn't TOONS listed among the official TOON community implementations?
+
+Join the conversation on [toon-format/toon#275](https://github.com/toon-format/toon/pull/275).
