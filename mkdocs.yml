@@ -39,9 +39,11 @@ nav:
     - Quick Start: index.md
     - Data Types: data-types.md
     - Complex Examples: examples.md
-  - Develop:
-    - API Reference: api-reference.md
+  - Contributing:
     - Contributing: contributing.md
+    - Testing Guide: testing-guide.md
+  - API Reference:
+    - API Reference: api-reference.md
 
 markdown_extensions:
   - pymdownx.highlight:
