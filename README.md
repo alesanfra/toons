@@ -11,6 +11,8 @@
 
 TOONS - Token Oriented Object Notation Serializer - is a fast Rust-based library that provides a Python interface mirroring the `json` module API, making it easy to work with the TOON format—a token-efficient data serialization format designed specifically for Large Language Models.
 
+TOONS is officially listed among the [community implementations of the TOON format](https://toonformat.dev/ecosystem/implementations.html#community-implementations).
+
 
 ## Documentation
 
@@ -123,7 +125,3 @@ See [Contributing Guide](https://toons.readthedocs.io/en/stable/contributing/) f
 ## License
 
 This project is licensed under the Apache License 2.0. See LICENSE file for details.
-
-## Why isn't TOONS listed among the official TOON community implementations?
-
-Join the conversation on [toon-format/toon#275](https://github.com/toon-format/toon/pull/275).
