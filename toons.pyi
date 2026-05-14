@@ -2,6 +2,32 @@
 
 from typing import IO, Any, Optional
 
+class ToonDecodeError(ValueError):
+    """Exception raised by the TOON decoder when input cannot be parsed.
+
+    Subclasses ``ValueError`` for backward compatibility, so existing
+    ``except ValueError`` handlers continue to catch parse failures.
+
+    Attributes:
+        line: 1-based line number where the error was detected, or ``None``
+            if the location is unknown (e.g. empty input).
+        source: The raw source line (including original indentation) where
+            the error was detected, or ``None`` if unknown.
+
+    The default message is formatted as ``"Line N: <detail>"`` when a line
+    number is available, matching the canonical TypeScript reference
+    implementation (``@toon-format/toon``).
+
+    Example:
+        >>> try:
+        ...     toons.loads("items[3]: a,b")
+        ... except toons.ToonDecodeError as exc:
+        ...     print(exc.line, exc.source, str(exc))
+    """
+
+    line: Optional[int]
+    source: Optional[str]
+
 def load(
     fp: IO[str],
     *,
@@ -19,6 +45,9 @@ def load(
 
     Returns:
         The parsed Python object.
+
+    Raises:
+        ToonDecodeError: If the input is malformed. Subclass of ValueError.
     """
     ...
 
@@ -39,6 +68,10 @@ def loads(
 
     Returns:
         The parsed Python object.
+
+    Raises:
+        ToonDecodeError: If the input is malformed. Subclass of ValueError;
+            carries structured ``.line`` and ``.source`` attributes.
     """
     ...
 
