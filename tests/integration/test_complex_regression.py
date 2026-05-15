@@ -85,3 +85,24 @@ class TestComplexRegression:
 
         # Verify both methods produce the same data
         assert loaded_data == toon_data
+
+
+class TestPrimitiveArrayColonRegression:
+    """Regression tests for §9.4 expanded primitive arrays containing colons (GitHub issue)."""
+
+    def test_quoted_strings_with_colon_in_expanded_array(self):
+        """Quoted strings containing a colon must be parsed as primitives, not objects (§9.3)."""
+        result = toons.loads('items[2|]:\n  - "a:b"\n  - "c:d"\n')
+        assert result == {"items": ["a:b", "c:d"]}
+
+    def test_single_quoted_string_with_colon_in_expanded_array(self):
+        """Single quoted string with colon in expanded primitive array."""
+        result = toons.loads('tags[1|]:\n  - "http://example.com"\n')
+        assert result == {"tags": ["http://example.com"]}
+
+    def test_mixed_primitives_and_colon_strings_in_expanded_array(self):
+        """Expanded array mixing plain strings and quoted strings with colons."""
+        result = toons.loads(
+            'values[3|]:\n  - plain\n  - "key:value"\n  - another\n'
+        )
+        assert result == {"values": ["plain", "key:value", "another"]}

@@ -849,7 +849,7 @@ impl<'a> Parser<'a> {
                     )?;
                     list.append(value)?;
                 }
-            } else if item_str.contains(':') {
+            } else if self.find_key_value_colon(item_str).is_some() {
                 self.pos -= 1;
                 let value = self.parse_list_item_object(py, expected_depth)?;
                 list.append(value)?;
