@@ -1,6 +1,13 @@
 mod deserialization;
 mod serialization;
 
+pyo3::create_exception!(
+    toons,
+    ToonDecodeError,
+    pyo3::exceptions::PyValueError,
+    "Raised when the TOON decoder cannot parse the input. Subclass of ValueError. Carries `.line` (1-based int or None) and `.source` (raw line string or None) attributes."
+);
+
 /// Python bindings for TOON (Token-Oriented Object Notation)
 ///
 /// TOON is a compact, human-readable serialization format optimized for
@@ -43,6 +50,9 @@ mod toons {
     #[pymodule_export]
     const __version__: &str = env!("CARGO_PKG_VERSION");
 
+    #[pymodule_export]
+    use super::ToonDecodeError;
+
     /// Deserialize a TOON formatted string to a Python object.
     ///
     /// Parse a string containing TOON (Token-Oriented Object Notation) data
@@ -57,7 +67,9 @@ mod toons {
     ///     A Python object (dict, list, or primitive) decoded from the TOON string
     ///
     /// Raises:
-    ///     ValueError: If the TOON string is malformed or contains invalid syntax
+    ///     ToonDecodeError: If the input is malformed. Subclass of
+    ///         `ValueError`; carries `.line` (1-based) and `.source`
+    ///         (raw line) attributes for programmatic access.
     ///
     /// Example:
     ///     >>> import toons
@@ -91,7 +103,7 @@ mod toons {
     ///     A Python object (dict, list, or primitive) decoded from the file
     ///
     /// Raises:
-    ///     ValueError: If the TOON data is malformed or contains invalid syntax
+    ///     ToonDecodeError: If the input is malformed. See `loads` for details.
     ///
     /// Example:
     ///     >>> import toons
