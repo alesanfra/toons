@@ -1,6 +1,21 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 
+/// Build a `ToonDecodeError` with `.line` and `.source` attributes set
+/// (either may be `None` when the offending location is unknown).
+fn make_decode_error(
+    py: Python,
+    message: String,
+    line: Option<usize>,
+    source: Option<&str>,
+) -> PyErr {
+    let err = PyErr::new::<crate::ToonDecodeError, _>(message);
+    let value = err.value(py);
+    let _ = value.setattr(pyo3::intern!(py, "line"), line);
+    let _ = value.setattr(pyo3::intern!(py, "source"), source);
+    err
+}
+
 /// Deserialize a TOON format string to a Python object.
 ///
 /// # Arguments
@@ -68,10 +83,12 @@ pub fn check_key_conflict(
             || (existing_is_list && !new_is_list)
             || (!existing_is_list && new_is_list)
         {
-            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                "TOON parse error: Path expansion conflict at key '{}'",
-                key
-            )));
+            return Err(make_decode_error(
+                target.py(),
+                format!("TOON parse error: Path expansion conflict at key '{}'", key),
+                None,
+                None,
+            ));
         }
     }
 
@@ -129,10 +146,12 @@ pub fn deep_merge_path(
                     || (existing_is_list && !new_is_list)
                     || (!existing_is_list && new_is_list)
                 {
-                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                        "TOON parse error: Path expansion conflict at key '{}'",
-                        key
-                    )));
+                    return Err(make_decode_error(
+                        py,
+                        format!("TOON parse error: Path expansion conflict at key '{}'", key),
+                        None,
+                        None,
+                    ));
                 }
             }
         }
@@ -152,10 +171,15 @@ pub fn deep_merge_path(
         } else {
             // Type conflict - existing value is not an object
             if strict {
-                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-                    "TOON parse error: Path expansion conflict at key '{}'",
-                    first_segment
-                )));
+                return Err(make_decode_error(
+                    py,
+                    format!(
+                        "TOON parse error: Path expansion conflict at key '{}'",
+                        first_segment
+                    ),
+                    None,
+                    None,
+                ));
             }
             // In non-strict mode, overwrite with new object (LWW)
             let new_dict = PyDict::new(py);
@@ -204,37 +228,21 @@ impl<'a> Parser<'a> {
         self.err_at(py, self.pos, msg)
     }
 
-    /// Build a `ToonDecodeError` with structured line context from an
-    /// explicit line index.
-    ///
-    /// The returned exception carries:
-    /// - a default message of `"TOON parse error at line N: <msg>"`
-    ///   (or `"TOON parse error: <msg>"` if the line is unknown),
-    ///   accessible via `str(exc)` or `exc.args[0]`. The
-    ///   `"TOON parse error"` prefix is preserved from prior versions
-    ///   for backward compatibility with substring matchers.
-    /// - `.line` — the 1-based line number (`None` if the document is empty);
-    /// - `.source` — the raw source line including indentation
-    ///   (`None` if the document is empty).
+    /// Build a `ToonDecodeError` from an explicit line index, populating
+    /// `.line` (1-based) and `.source` (raw line including indentation).
+    /// Both are `None` for an empty input.
     fn err_at(&self, py: Python, line_idx: usize, msg: impl Into<String>) -> PyErr {
         let (line_num, source) = if self.lines.is_empty() {
             (None, None)
         } else {
             let clamped = line_idx.min(self.lines.len() - 1);
-            (Some(clamped + 1), Some(self.lines[clamped].to_string()))
+            (Some(clamped + 1), Some(self.lines[clamped]))
         };
         let formatted = match line_num {
             Some(n) => format!("TOON parse error at line {}: {}", n, msg.into()),
             None => format!("TOON parse error: {}", msg.into()),
         };
-        let err = PyErr::new::<crate::ToonDecodeError, _>(formatted);
-        // Materialize and decorate with structured attributes. The setattr
-        // calls cannot meaningfully fail (the exception object is a fresh
-        // BaseException instance), so we ignore Result.
-        let value = err.value(py);
-        let _ = value.setattr(pyo3::intern!(py, "line"), line_num);
-        let _ = value.setattr(pyo3::intern!(py, "source"), source);
-        err
+        make_decode_error(py, formatted, line_num, source)
     }
 
     fn detect_indent_size(&mut self) {
@@ -266,7 +274,7 @@ impl<'a> Parser<'a> {
         let indent_part = &line[..indent_len];
 
         if indent_part.contains('\t') {
-            return Err(self.err_here(py,"Tabs are not allowed in indentation"));
+            return Err(self.err_here(py, "Tabs are not allowed in indentation"));
         }
 
         // Use explicit_indent if provided, otherwise use auto-detected indent_size
@@ -277,10 +285,13 @@ impl<'a> Parser<'a> {
         };
 
         if check_indent > 0 && indent_len % check_indent != 0 {
-            return Err(self.err_here(py,format!(
-                "Indentation {} is not a multiple of indent size {}",
-                indent_len, check_indent
-            )));
+            return Err(self.err_here(
+                py,
+                format!(
+                    "Indentation {} is not a multiple of indent size {}",
+                    indent_len, check_indent
+                ),
+            ));
         }
 
         Ok(())
@@ -303,7 +314,7 @@ impl<'a> Parser<'a> {
         }
 
         let first_line = self.lines[self.pos];
-        self.validate_indentation(py,first_line)?;
+        self.validate_indentation(py, first_line)?;
         let first_line_trimmed = first_line.trim();
 
         // Check if it's a root array header - can be [N]: or [N]{fields}:
@@ -326,7 +337,7 @@ impl<'a> Parser<'a> {
     fn parse_root_array(&mut self, py: Python) -> PyResult<Py<PyAny>> {
         let header_idx = self.pos;
         let header = self.lines[self.pos];
-        let (length, delimiter, fields) = self.parse_header(py,header, header_idx)?;
+        let (length, delimiter, fields) = self.parse_header(py, header, header_idx)?;
         self.pos += 1;
 
         if let Some(field_names) = fields {
@@ -346,7 +357,7 @@ impl<'a> Parser<'a> {
                 }
             } else {
                 // Malformed
-                Err(self.err_at(py,header_idx, "Invalid array header"))
+                Err(self.err_at(py, header_idx, "Invalid array header"))
             }
         }
     }
@@ -356,7 +367,7 @@ impl<'a> Parser<'a> {
 
         while self.pos < self.lines.len() {
             let line = self.lines[self.pos];
-            self.validate_indentation(py,line)?;
+            self.validate_indentation(py, line)?;
 
             let line_trimmed = line.trim();
             if line_trimmed.is_empty() {
@@ -441,12 +452,12 @@ impl<'a> Parser<'a> {
                             deep_merge_path(py, &dict, &segments, value, self.strict)?;
                         } else {
                             check_key_conflict(&dict, key_name, value.bind(py), self.strict)?;
-                            let key = self.parse_key(py,key_name)?;
+                            let key = self.parse_key(py, key_name)?;
                             dict.set_item(key, value)?;
                         }
                     } else {
                         let key = if was_quoted {
-                            self.parse_key(py,key_name)?
+                            self.parse_key(py, key_name)?
                         } else {
                             key_name.to_string()
                         };
@@ -458,7 +469,7 @@ impl<'a> Parser<'a> {
 
                 // Parse the key and check if it was quoted
                 let (should_expand, was_quoted) = self.should_expand_key(key_part);
-                let parsed_key = self.parse_key(py,key_part)?;
+                let parsed_key = self.parse_key(py, key_part)?;
                 self.pos += 1;
 
                 if value_part.is_empty() {
@@ -528,7 +539,7 @@ impl<'a> Parser<'a> {
                 }
             } else {
                 // Missing colon error
-                return Err(self.err_here(py,format!("Missing colon in line: {}", line_trimmed)));
+                return Err(self.err_here(py, format!("Missing colon in line: {}", line_trimmed)));
             }
         }
 
@@ -542,7 +553,7 @@ impl<'a> Parser<'a> {
         depth: usize,
     ) -> PyResult<Py<PyAny>> {
         let header_idx = self.pos;
-        let (length, delimiter, fields) = self.parse_header(py,header_line, header_idx)?;
+        let (length, delimiter, fields) = self.parse_header(py, header_line, header_idx)?;
         self.pos += 1;
 
         if let Some(field_names) = fields {
@@ -557,7 +568,7 @@ impl<'a> Parser<'a> {
                     self.parse_expanded_array(py, length, depth + 1, header_idx)
                 }
             } else {
-                Err(self.err_at(py,header_idx, "Invalid array header"))
+                Err(self.err_at(py, header_idx, "Invalid array header"))
             }
         }
     }
@@ -570,19 +581,20 @@ impl<'a> Parser<'a> {
     ) -> PyResult<(usize, char, Option<Vec<String>>)> {
         let trimmed = header.trim();
 
-        let bracket_start = self.find_array_bracket_start(trimmed).ok_or_else(|| {
-            self.err_at(py,header_line_idx, "Invalid array header: missing '['")
-        })?;
+        let bracket_start = self
+            .find_array_bracket_start(trimmed)
+            .ok_or_else(|| self.err_at(py, header_line_idx, "Invalid array header: missing '['"))?;
 
         let bracket_end = trimmed[bracket_start..]
             .find(']')
             .map(|pos| pos + bracket_start)
-            .ok_or_else(|| self.err_at(py,header_line_idx, "Invalid array header: missing ']'"))?;
+            .ok_or_else(|| self.err_at(py, header_line_idx, "Invalid array header: missing ']'"))?;
 
         let bracket_content = &trimmed[bracket_start + 1..bracket_end];
 
         if bracket_content.trim_start().starts_with('#') {
-            return Err(self.err_at(py,
+            return Err(self.err_at(
+                py,
                 header_line_idx,
                 "[#N] headers were removed in v2.0; use [N]",
             ));
@@ -599,7 +611,8 @@ impl<'a> Parser<'a> {
         };
 
         let length = length_str.parse::<usize>().map_err(|_| {
-            self.err_at(py,
+            self.err_at(
+                py,
                 header_line_idx,
                 format!("Invalid array length: {}", length_str),
             )
@@ -610,18 +623,19 @@ impl<'a> Parser<'a> {
             .find_unquoted_char(substring_after_bracket, ':')
             .unwrap_or(substring_after_bracket.len());
         let fields = if let Some(brace_start) = substring_after_bracket[..colon_pos].find('{') {
-            let brace_end_relative = substring_after_bracket[..colon_pos]
-                .find('}')
-                .ok_or_else(|| {
-                    self.err_at(py,header_line_idx, "Invalid field list: missing '}'")
-                })?;
+            let brace_end_relative =
+                substring_after_bracket[..colon_pos]
+                    .find('}')
+                    .ok_or_else(|| {
+                        self.err_at(py, header_line_idx, "Invalid field list: missing '}'")
+                    })?;
 
             let field_content = &substring_after_bracket[brace_start + 1..brace_end_relative];
             let field_parts = self.split_by_delimiter(field_content, delimiter);
             let field_names: Vec<String> = field_parts
                 .iter()
                 .map(|f| {
-                    self.parse_key(py,f.trim())
+                    self.parse_key(py, f.trim())
                         .unwrap_or_else(|_| f.trim().to_string())
                 })
                 .collect();
@@ -649,7 +663,7 @@ impl<'a> Parser<'a> {
             let line_trimmed = line.trim();
 
             if !line_trimmed.is_empty() {
-                self.validate_indentation(py,line)?;
+                self.validate_indentation(py, line)?;
                 let line_depth = self.get_depth(line);
 
                 if line_depth < expected_depth {
@@ -674,7 +688,7 @@ impl<'a> Parser<'a> {
                 }
 
                 if self.strict {
-                    return Err(self.err_here(py,"Blank line inside array"));
+                    return Err(self.err_here(py, "Blank line inside array"));
                 }
                 self.pos += 1;
                 continue;
@@ -687,11 +701,14 @@ impl<'a> Parser<'a> {
             let values = self.split_by_delimiter(line_trimmed, delimiter);
 
             if values.len() != fields.len() {
-                return Err(self.err_here(py,format!(
-                    "Tabular row has {} values but header defines {} fields",
-                    values.len(),
-                    fields.len()
-                )));
+                return Err(self.err_here(
+                    py,
+                    format!(
+                        "Tabular row has {} values but header defines {} fields",
+                        values.len(),
+                        fields.len()
+                    ),
+                ));
             }
 
             let dict = PyDict::new(py);
@@ -709,7 +726,8 @@ impl<'a> Parser<'a> {
 
         let actual_len = list.len();
         if length > 0 && actual_len != length {
-            return Err(self.err_at(py,
+            return Err(self.err_at(
+                py,
                 header_line_idx,
                 format!(
                     "Array declared length {} but found {} elements",
@@ -733,7 +751,8 @@ impl<'a> Parser<'a> {
 
         if values_str.is_empty() {
             if length > 0 {
-                return Err(self.err_at(py,
+                return Err(self.err_at(
+                    py,
                     header_line_idx,
                     format!("Array declared length {} but found 0 elements", length),
                 ));
@@ -744,7 +763,8 @@ impl<'a> Parser<'a> {
         let values = self.split_by_delimiter(values_str, delimiter);
 
         if length > 0 && values.len() != length {
-            return Err(self.err_at(py,
+            return Err(self.err_at(
+                py,
                 header_line_idx,
                 format!(
                     "Array declared length {} but found {} elements",
@@ -776,7 +796,7 @@ impl<'a> Parser<'a> {
             let line_trimmed = line.trim();
 
             if !line_trimmed.is_empty() {
-                self.validate_indentation(py,line)?;
+                self.validate_indentation(py, line)?;
                 let line_depth = self.get_depth(line);
 
                 if line_depth < expected_depth {
@@ -801,7 +821,7 @@ impl<'a> Parser<'a> {
                 }
 
                 if self.strict {
-                    return Err(self.err_here(py,"Blank line inside array"));
+                    return Err(self.err_here(py, "Blank line inside array"));
                 }
                 self.pos += 1;
                 continue;
@@ -831,13 +851,17 @@ impl<'a> Parser<'a> {
                 let header_part = item_str.split("]:").next().unwrap();
                 let header_with_bracket = format!("{}]", header_part);
                 let (inner_len, inner_delim, _) =
-                    self.parse_header(py,&header_with_bracket, item_line_idx)?;
+                    self.parse_header(py, &header_with_bracket, item_line_idx)?;
 
                 let after_colon = item_str.split("]:").nth(1).unwrap_or("").trim();
 
                 if after_colon.is_empty() {
-                    let value =
-                        self.parse_expanded_array(py, inner_len, expected_depth + 1, item_line_idx)?;
+                    let value = self.parse_expanded_array(
+                        py,
+                        inner_len,
+                        expected_depth + 1,
+                        item_line_idx,
+                    )?;
                     list.append(value)?;
                 } else {
                     let value = self.parse_inline_array(
@@ -861,7 +885,8 @@ impl<'a> Parser<'a> {
 
         let actual_len = list.len();
         if length > 0 && actual_len != length {
-            return Err(self.err_at(py,
+            return Err(self.err_at(
+                py,
                 header_line_idx,
                 format!(
                     "Array declared length {} but found {} elements",
@@ -900,10 +925,10 @@ impl<'a> Parser<'a> {
                     } else {
                         key_part.split('[').next().unwrap()
                     };
-                    let key = self.parse_key(py,key_name)?;
+                    let key = self.parse_key(py, key_name)?;
                     dict.set_item(key, value)?;
                 } else {
-                    let key = self.parse_key(py,key_part)?;
+                    let key = self.parse_key(py, key_part)?;
                     self.pos += 1;
 
                     if value_part.is_empty() {
@@ -924,7 +949,7 @@ impl<'a> Parser<'a> {
 
         while self.pos < self.lines.len() {
             let line = self.lines[self.pos];
-            self.validate_indentation(py,line)?;
+            self.validate_indentation(py, line)?;
             let line_depth = self.get_depth(line);
 
             if line_depth <= list_depth {
@@ -958,12 +983,12 @@ impl<'a> Parser<'a> {
                     } else {
                         key_part.split('[').next().unwrap()
                     };
-                    let key = self.parse_key(py,key_name)?;
+                    let key = self.parse_key(py, key_name)?;
                     dict.set_item(key, value)?;
                     continue;
                 }
 
-                let key = self.parse_key(py,key_part)?;
+                let key = self.parse_key(py, key_part)?;
                 self.pos += 1;
 
                 if value_part.is_empty() {
@@ -986,9 +1011,9 @@ impl<'a> Parser<'a> {
 
         if trimmed.starts_with('"') {
             if !trimmed.ends_with('"') || trimmed.len() < 2 {
-                return Err(self.err_here(py,"Unterminated string"));
+                return Err(self.err_here(py, "Unterminated string"));
             }
-            let unescaped = self.unescape_string(py,&trimmed[1..trimmed.len() - 1])?;
+            let unescaped = self.unescape_string(py, &trimmed[1..trimmed.len() - 1])?;
             return Ok(PyString::new(py, &unescaped).into());
         }
 
@@ -1112,10 +1137,12 @@ impl<'a> Parser<'a> {
                     Some('r') => result.push('\r'),
                     Some('t') => result.push('\t'),
                     Some(other) => {
-                        return Err(self.err_here(py,format!("Invalid escape sequence: \\{}", other)));
+                        return Err(
+                            self.err_here(py, format!("Invalid escape sequence: \\{}", other))
+                        );
                     }
                     None => {
-                        return Err(self.err_here(py,"Unterminated escape sequence"));
+                        return Err(self.err_here(py, "Unterminated escape sequence"));
                     }
                 }
             } else {

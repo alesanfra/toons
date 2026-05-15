@@ -1,18 +1,6 @@
 mod deserialization;
 mod serialization;
 
-// `ToonDecodeError` — raised by the TOON decoder when input cannot be parsed.
-//
-// Subclasses `ValueError` and exposes two structured
-// attributes for programmatic consumers:
-//
-//   - `line: Optional[int]`   — 1-based line number where the error was
-//                                detected, if known.
-//   - `source: Optional[str]` — raw source line (including indentation)
-//                                where the error was detected, if known.
-//
-// The default message is formatted as `"Line N: <detail>"` when a line
-// number is available.
 pyo3::create_exception!(
     toons,
     ToonDecodeError,
@@ -62,15 +50,8 @@ mod toons {
     #[pymodule_export]
     const __version__: &str = env!("CARGO_PKG_VERSION");
 
-    /// Register the `ToonDecodeError` exception class on the module.
-    #[pymodule_init]
-    fn init(m: &Bound<'_, PyModule>) -> PyResult<()> {
-        m.add(
-            "ToonDecodeError",
-            m.py().get_type::<crate::ToonDecodeError>(),
-        )?;
-        Ok(())
-    }
+    #[pymodule_export]
+    use super::ToonDecodeError;
 
     /// Deserialize a TOON formatted string to a Python object.
     ///
@@ -86,10 +67,9 @@ mod toons {
     ///     A Python object (dict, list, or primitive) decoded from the TOON string
     ///
     /// Raises:
-    ///     ToonDecodeError: If the TOON string is malformed or contains invalid
-    ///         syntax. Subclasses ValueError, so `except ValueError` still
-    ///         catches. Carries structured `.line` (1-based) and `.source`
-    ///         (raw line) attributes for programmatic introspection.
+    ///     ToonDecodeError: If the input is malformed. Subclass of
+    ///         `ValueError`; carries `.line` (1-based) and `.source`
+    ///         (raw line) attributes for programmatic access.
     ///
     /// Example:
     ///     >>> import toons
@@ -123,8 +103,7 @@ mod toons {
     ///     A Python object (dict, list, or primitive) decoded from the file
     ///
     /// Raises:
-    ///     ToonDecodeError: If the TOON data is malformed or contains invalid
-    ///         syntax. Subclasses ValueError. See `loads` for details.
+    ///     ToonDecodeError: If the input is malformed. See `loads` for details.
     ///
     /// Example:
     ///     >>> import toons
