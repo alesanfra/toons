@@ -45,6 +45,7 @@ pyo3::create_exception!(
 #[pyo3::pymodule]
 mod toons {
     use pyo3::prelude::*;
+    use pyo3::types::PyDict;
 
     #[allow(non_upper_case_globals)]
     #[pymodule_export]
@@ -87,6 +88,53 @@ mod toons {
     ) -> PyResult<Py<PyAny>> {
         let expand_mode = expand_paths.unwrap_or("off");
         crate::deserialization::deserialize(py, &s, strict, expand_mode, indent)
+    }
+
+    /// Convert a TOON formatted string to a JSON formatted string.
+    ///
+    /// Parse a string containing TOON (Token-Oriented Object Notation) data
+    /// and return the corresponding JSON string using Python's standard
+    /// library json module.
+    ///
+    /// Args:
+    ///     s: A string containing TOON formatted data
+    ///     strict: If True (default), enforce strict TOON v3.0 compliance.
+    ///             If False, allow some leniency (e.g. blank lines in arrays).
+    ///     expand_paths: Path expansion mode: None, "off", "safe", "always".
+    ///     indent: Number of spaces per JSON indentation level, or None for
+    ///             compact JSON (default: 2)
+    ///
+    /// Returns:
+    ///     A string containing JSON decoded from the TOON string
+    ///
+    /// Raises:
+    ///     ToonDecodeError: If the input is malformed. See `loads` for details.
+    ///
+    /// Example:
+    ///     >>> import toons
+    ///     >>> json_str = toons.to_json("name: Alice\nage: 30")
+    ///     >>> print(json_str)
+    ///     {
+    ///       "name": "Alice",
+    ///       "age": 30
+    ///     }
+    #[pyfunction]
+    #[pyo3(signature = (s, *, strict=true, expand_paths=None, indent=2))]
+    fn to_json(
+        py: Python,
+        s: String,
+        strict: bool,
+        expand_paths: Option<&str>,
+        indent: Option<usize>,
+    ) -> PyResult<String> {
+        let expand_mode = expand_paths.unwrap_or("off");
+        let parsed_obj = crate::deserialization::deserialize(py, &s, strict, expand_mode, None)?;
+        let json = py.import("json")?;
+        let kwargs = PyDict::new(py);
+        kwargs.set_item("indent", indent)?;
+        json.getattr("dumps")?
+            .call((parsed_obj,), Some(&kwargs))?
+            .extract()
     }
 
     /// Deserialize a TOON formatted file to a Python object.

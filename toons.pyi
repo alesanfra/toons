@@ -75,6 +75,30 @@ def loads(
     """
     ...
 
+def to_json(
+    s: str,
+    *,
+    strict: bool = True,
+    expand_paths: Optional[str] = None,
+    indent: Optional[int] = 2,
+) -> str:
+    """Convert a TOON string to a JSON string.
+
+    Args:
+        s: TOON-formatted string.
+        strict: Enforce strict TOON v3.0 compliance.
+        expand_paths: Path expansion mode: None, "off", "safe", "always".
+        indent: Spaces per JSON indentation level, or None for compact JSON.
+
+    Returns:
+        JSON-formatted string.
+
+    Raises:
+        ToonDecodeError: If the input is malformed. Subclass of ValueError;
+            carries structured ``.line`` and ``.source`` attributes.
+    """
+    ...
+
 def dump(
     obj: Any,
     fp: IO[str],

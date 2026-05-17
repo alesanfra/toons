@@ -81,6 +81,13 @@ print(toons.dumps(user))
 # name: Bob
 # age: 25
 # active: true
+
+# Convert TOON to JSON
+print(toons.to_json("name: Alice\nage: 30"))
+# {
+#   "name": "Alice",
+#   "age": 30
+# }
 ```
 
 ### File Operations
