@@ -111,17 +111,28 @@ with open("data.toon", "r") as f:
 git clone https://github.com/alesanfra/toons.git
 cd toons
 
-# Install dependencies
-pip install -r requirements-dev.txt
+# Create venv and install dependencies
+uv venv -p 3.14
+uv sync --frozen
 
-# Build extension
-maturin develop
+# Build module
+uv run maturin develop --uv
 
 # Run tests
-pytest
+uv run pytest
 ```
 
 See the [Development Guide](https://toons.readthedocs.io/en/stable/development/) for more details.
+
+## Targets
+
+Starting with v0.7.0, to optimize GitHub Actions free-tier credits, we no longer build binary wheels for these targets:
+
+- Linux x86, s390x, and ppc64le, since we had 0 downloads during the period from 2026-04-20 to 2026-05-20
+- Linux armv7l, since we had only 6 downloads during the period from 2026-04-20 to 2026-05-20
+- Windows x86 (32-bit), since we had 0 downloads during the period from 2026-04-20 to 2026-05-20
+
+Source distributions will remain available, so you will still be able to install `toons` if you also have the Rust compiler installed.
 
 ## Contributing
 

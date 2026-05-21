@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.9,<2.0"]
+requires = ["maturin>=1.13.3,<2.0"]
 build-backend = "maturin"
 
 [project]
@@ -20,6 +20,22 @@ dynamic = ["version"]
 [project.urls]
 Homepage = "https://github.com/alesanfra/toons"
 Source = "https://github.com/alesanfra/toons"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.13.3",
+    "pre-commit>=2.21.0",
+    "pytest>=7.4.4",
+    "pytest-cov>=4.1.0",
+]
+docs = [
+    "mkdocs>=1.5.3",
+    "mkdocs-autorefs>=0.4.1",
+    "mkdocs-material>=9.2.7",
+    "mkdocstrings>=0.22.0",
+    "mkdocstrings-python>=1.1.2",
+    "pymdown-extensions>=10.2.1",
+]
 
 [tool.maturin]
 features = ["pyo3/extension-module", "pyo3/abi3-py37"]
