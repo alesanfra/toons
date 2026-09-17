@@ -74,6 +74,8 @@ All notable changes to this project are documented here. The format follows
 - Read the Docs installs the documentation dependencies with `uv sync`
   against `pyproject.toml` and `uv.lock`, so the exported
   `docs/requirements.txt` is gone.
+- Publishing to PyPI runs in its own `pypi` environment, so a tagged release
+  shows up under the repository's Deployments and can be gated there.
 
 ### Removed
 

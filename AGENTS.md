@@ -182,5 +182,8 @@ compiler's features, which is what broke the 0.7.0 docs build.
 
 Version lives in `Cargo.toml` and is re-exported as `toons.__version__`;
 `pyproject.toml` takes it from there. To release: bump the version, update
-`CHANGELOG.md`, tag, and let the `release` job in `.github/workflows/CI.yml`
-build the wheels and publish to PyPI.
+`CHANGELOG.md`, tag, and let `.github/workflows/CI.yml` build the wheels,
+attest them in the `release` job, and upload them in the `publish` job. That
+job names the `pypi` environment, so each release is recorded under the
+repository's Deployments; protections configured there (reviewers, branch
+and tag rules) gate the upload.
