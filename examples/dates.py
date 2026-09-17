@@ -1,19 +1,18 @@
+"""Date and time objects encode as ISO 8601 strings."""
+
 from datetime import datetime
 
 import toons
 
-now = datetime.now()
+now = datetime(2025, 2, 7, 14, 30, 45)
 
-d = {
-    "my_data": [
-        {"my_date": now},
-        {"my_date": now.time()},
-        {"my_date": now.date()},
-        {"my_date": now.isoformat()},
-        {"my_date": now.strftime("%Y-%m-%d")},
-        {"my_date": now.time().isoformat()},
-        {"my_date": now.time().strftime("%H:%M:%S")},
+data = {
+    "values": [
+        {"kind": "datetime", "value": now},
+        {"kind": "time", "value": now.time()},
+        {"kind": "date", "value": now.date()},
+        {"kind": "preformatted", "value": now.strftime("%Y-%m-%d")},
     ]
 }
 
-print(toons.dumps(d))
+print(toons.dumps(data))

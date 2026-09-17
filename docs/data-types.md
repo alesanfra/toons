@@ -5,20 +5,28 @@ How TOONS maps Python values to TOON and back.
 ## Mapping summary
 
 | Python | TOON | Notes |
-|---|---|---|
-| `dict` | object | Keys are strings; order preserved |
-| `list` | array | Inline or multiline |
+| --- | --- | --- |
+| `dict` | object | Keys must be strings; insertion order is preserved |
+| `list`, `tuple` | array | Inline, tabular, or expanded |
 | `str` | string | Quoted only when needed |
-| `int` | integer | No scientific notation |
-| `float` | float | Normalized decimal |
-| `bool` | `true`/`false` | Lowercase |
+| `int` | integer | Plain decimal, any magnitude |
+| `float` | number | Plain decimal; `NaN` and infinities become `null` |
+| `bool` | `true` / `false` | Lowercase |
 | `None` | `null` | |
+| `datetime`, `date`, `time` | string | ISO 8601, via `isoformat()` |
+| `Decimal` | number | Converted through `float`, so trailing zeros are lost |
+
+Decoding maps TOON back to `dict`, `list`, `str`, `int`, `float`, `bool`, and
+`None`. A tuple therefore decodes as a list.
 
 ## Strings
 
-Strings are unquoted when safe, quoted when required.
+Strings are unquoted when that is unambiguous, quoted when it is not.
 
-Quote a string if it is empty, has leading/trailing whitespace, is numeric-like, equals `true`/`false`/`null`, starts with `-`, or contains reserved characters (`:`, `"`, `\`, `[`, `]`, `{`, `}`) or the active delimiter.
+A string is quoted when it is empty, has leading or trailing whitespace,
+looks like a number, equals `true`, `false`, or `null`, starts with `-`, or
+contains `:`, `"`, `\`, `[`, `]`, `{`, `}`, a newline, a tab, or the active
+delimiter.
 
 ```python
 import toons
@@ -29,20 +37,53 @@ print(toons.dumps({"name": "Alice"}))
 print(toons.dumps({"text": "Hello: World"}))
 # text: "Hello: World"
 
+print(toons.dumps({"csv": "a,b,c"}))
+# csv: "a,b,c"
+
 print(toons.loads('text: "Line 1\\nLine 2"'))
 # {'text': 'Line 1\nLine 2'}
 ```
 
-## Numbers
-
-TOON uses plain decimal notation. Scientific notation input is expanded.
+Quoting is what preserves the type of a string that looks numeric:
 
 ```python
 import toons
 
-print(toons.dumps({"count": 42, "pi": 3.14}))
+print(toons.dumps({"zip": "12345"}))
+# zip: "12345"
+
+print(toons.loads("zip: 12345"))
+# {'zip': 12345}
+
+print(toons.loads('zip: "12345"'))
+# {'zip': '12345'}
+```
+
+## Numbers
+
+TOON writes plain decimal notation, never exponents. Integers keep their
+exact value regardless of magnitude.
+
+```python
+import toons
+
+print(toons.dumps({"count": 42, "pi": 3.14, "small": 2.5e-4, "big": 1.5e10}))
 # count: 42
 # pi: 3.14
+# small: 0.00025
+# big: 15000000000
+
+print(toons.loads("value: 1180591620717411303424"))
+# {'value': 1180591620717411303424}
+```
+
+Floats that are not finite have no TOON representation and encode as `null`:
+
+```python
+import toons
+
+print(toons.dumps({"value": float("nan")}))
+# value: null
 ```
 
 ## Booleans and null
@@ -55,9 +96,10 @@ print(toons.dumps({"active": True, "value": None}))
 # value: null
 ```
 
-## Objects (dict)
+## Objects
 
-Unquoted keys must match $^[A-Za-z_][\w.]*$$. Other keys are quoted.
+Keys are written bare when they match `[A-Za-z_][A-Za-z0-9_.]*`, and quoted
+otherwise.
 
 ```python
 import toons
@@ -67,9 +109,24 @@ print(toons.dumps({"user_id": 1, "full name": "Alice"}))
 # "full name": Alice
 ```
 
-## Arrays (list)
+An empty object encodes as nothing at the root, and an empty document
+decodes as an empty dict:
 
-Primitive arrays are inline; mixed or nested arrays are multiline.
+```python
+import toons
+
+print(repr(toons.dumps({})))
+# ''
+
+print(toons.loads(""))
+# {}
+```
+
+## Arrays
+
+Arrays always declare their length. The layout depends on the contents.
+
+**Primitive arrays are inline:**
 
 ```python
 import toons
@@ -77,28 +134,13 @@ import toons
 print(toons.dumps({"tags": ["python", "rust", "toon"]}))
 # tags[3]: python,rust,toon
 
-print(toons.dumps({"items": [1, {"a": 1}, True]}))
-# items[3]:
-#   - 1
-#   - a: 1
-#   - true
+print(toons.dumps({"items": []}))
+# items[0]:
 ```
 
-## Tabular arrays
-
-Uniform arrays of objects can serialize in a compact tabular form.
-
-```python
-import toons
-
-data = {"users": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}
-print(toons.dumps(data))
-# users[2]{id,name}:
-#   1,A
-#   2,B
-```
-
-**Uniform Object Arrays (Tabular):**
+**Uniform object arrays use the tabular form**, which is where TOON saves the
+most tokens. It applies when every element is an object with the same keys
+and only primitive values:
 
 ```python
 import toons
@@ -107,40 +149,21 @@ users = {
     "users": [
         {"name": "Alice", "age": 30, "role": "admin"},
         {"name": "Bob", "age": 25, "role": "user"},
-        {"name": "Charlie", "age": 35, "role": "moderator"}
     ]
 }
 
 print(toons.dumps(users))
-# users[3]{name,age,role}:
+# users[2]{name,age,role}:
 #   Alice,30,admin
 #   Bob,25,user
-#   Charlie,35,moderator
 ```
 
-**Requirements for Tabular Format:**
-
-1. All elements must be objects (dicts)
-2. All objects must have exactly the same keys
-3. All values must be primitives (no nested objects/arrays)
-
-**Non-Uniform Arrays (Expanded):**
+**Everything else uses the expanded form**, one `- ` item per element:
 
 ```python
 import toons
 
-# Mixed types
-data = {
-    "items": [
-        42,
-        "text",
-        {"name": "Alice"},
-        [1, 2, 3],
-        None
-    ]
-}
-
-print(toons.dumps(data))
+print(toons.dumps({"items": [42, "text", {"name": "Alice"}, [1, 2, 3], None]}))
 # items[5]:
 #   - 42
 #   - text
@@ -148,15 +171,7 @@ print(toons.dumps(data))
 #   - [3]: 1,2,3
 #   - null
 
-# Non-uniform objects
-data = {
-    "users": [
-        {"name": "Alice", "age": 30},
-        {"name": "Bob", "role": "admin"}  # Different keys
-    ]
-}
-
-print(toons.dumps(data))
+print(toons.dumps({"users": [{"name": "Alice", "age": 30}, {"name": "Bob", "role": "admin"}]}))
 # users[2]:
 #   - name: Alice
 #     age: 30
@@ -164,170 +179,59 @@ print(toons.dumps(data))
 #     role: admin
 ```
 
-**Root Arrays:**
+**Arrays can be the root value:**
 
 ```python
 import toons
 
-# Root primitive array
-data = [1, 2, 3, 4, 5]
-print(toons.dumps(data))
+print(toons.dumps([1, 2, 3, 4, 5]))
 # [5]: 1,2,3,4,5
 
-# Root object array (tabular)
-data = [
-    {"name": "Alice", "age": 30},
-    {"name": "Bob", "age": 25}
-]
-print(toons.dumps(data))
+print(toons.dumps([{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]))
 # [2]{name,age}:
 #   Alice,30
 #   Bob,25
 ```
 
-## Type Conversion Table
+## Dates and times
 
-### Python → TOON
-
-| Python Type | TOON Format | Example |
-|-------------|-------------|---------|
-| `str` | Unquoted or quoted | `name: Alice` or `"name": "Alice"` |
-| `int` | Number literal | `age: 30` |
-| `float` | Decimal literal | `price: 19.99` |
-| `bool` | `true` / `false` | `active: true` |
-| `None` | `null` | `value: null` |
-| `dict` | Indented key-value | `user:\n  name: Alice` |
-| `list` (primitives) | Inline array | `tags[3]: a,b,c` |
-| `list` (uniform objects) | Tabular | `users[2]{name,age}:\n  Alice,30\n  Bob,25` |
-| `list` (mixed) | Expanded | `items[2]:\n  - 1\n  - text` |
-
-### TOON → Python
-
-| TOON Format | Python Type | Example |
-|-------------|-------------|---------|
-| `true` / `false` | `bool` | `True` / `False` |
-| `null` | `NoneType` | `None` |
-| Numeric token | `int` or `float` | `42` or `3.14` |
-| Unquoted token | `str` | `"Alice"` |
-| Quoted string | `str` | `"Hello\nWorld"` |
-| `key: value` | `dict` | `{"key": "value"}` |
-| `key[N]: v1,v2` | `dict` with `list` | `{"key": ["v1", "v2"]}` |
-| Tabular format | `dict` with `list[dict]` | `{"users": [{"name": "Alice"}]}` |
-
-## Edge Cases
-
-### Empty Values
+`datetime`, `date`, and `time` objects encode as their ISO 8601 string. They
+decode back as strings, not as date objects.
 
 ```python
 import toons
+from datetime import date, datetime
 
-# Empty object
-data = {}
-print(toons.dumps(data))
-# (empty string)
+print(toons.dumps({"day": date(2025, 2, 7)}))
+# day: 2025-02-07
 
-# Empty array
-data = {"items": []}
-print(toons.dumps(data))
-# items[0]:
-
-# Empty string
-data = {"text": ""}
-print(toons.dumps(data))
-# text: ""
-
-# Parsing empty
-data = toons.loads("")
-print(data)  # {}
+print(toons.dumps({"when": datetime(2025, 2, 7, 14, 30, 45)}))
+# when: "2025-02-07T14:30:45"
 ```
 
-### Special Characters
+## Unsupported values
+
+Values with no TOON representation raise `TypeError`, as they do in the
+`json` module: sets, generators, functions, modules, file objects, and
+arbitrary class instances. Object keys that are not strings also raise
+`TypeError`.
 
 ```python
 import toons
 
-# Strings with delimiters
-data = {"csv": "a,b,c"}
-print(toons.dumps(data))
-# csv: "a,b,c"  # Quoted because contains comma
-
-# Strings with colons
-data = {"time": "12:30:45"}
-print(toons.dumps(data))
-# time: "12:30:45"  # Quoted because contains colon
-
-# Strings with quotes
-data = {"text": 'He said "hello"'}
-print(toons.dumps(data))
-# text: "He said \"hello\""  # Escaped quotes
+try:
+    toons.dumps({"tags": {"a", "b"}})
+except TypeError as exc:
+    print(exc)
+# Object of type set is not TOON serializable
 ```
 
-### Numeric Strings
+Convert such values before encoding:
 
 ```python
 import toons
 
-# Numeric strings must be quoted
-data = {"zip": "12345"}
-print(toons.dumps(data))
-# zip: "12345"  # Quoted to preserve as string
 
-# Parsing
-data = toons.loads("zip: 12345")  # Without quotes
-print(data)  # {'zip': 12345}  # Parsed as number!
-
-data = toons.loads('zip: "12345"')  # With quotes
-print(data)  # {'zip': '12345'}  # Preserved as string
-```
-
-### Very Large Numbers
-
-```python
-import toons
-
-# Safe integer range (JavaScript Number.MAX_SAFE_INTEGER)
-safe_max = 9007199254740991
-data = {"value": safe_max}
-print(toons.dumps(data))
-# value: 9007199254740991
-
-# Beyond safe range - may lose precision
-big = 9007199254740992
-data = {"value": big}
-result = toons.dumps(data)
-parsed = toons.loads(result)
-print(parsed["value"] == big)  # May be False due to float precision
-
-# Solution: use string for very large numbers
-data = {"value": "9007199254740992"}
-print(toons.dumps(data))
-# value: "9007199254740992"  # Preserved exactly
-```
-
-## Unsupported Types
-
-These Python types cannot be directly serialized:
-
-- **Functions** / **lambdas**
-- **Classes** / **instances** (unless dict-like)
-- **Modules**
-- **File objects**
-- **Generators**
-- **Custom objects** (without conversion)
-
-**Workaround:** Convert to supported types before serialization:
-
-```python
-import toons
-from datetime import datetime
-
-# Date objects
-date = datetime.now()
-data = {"timestamp": date.isoformat()}  # Convert to string
-print(toons.dumps(data))
-# timestamp: 2025-01-01T00:00:00
-
-# Custom objects
 class User:
     def __init__(self, name, age):
         self.name = name
@@ -336,17 +240,20 @@ class User:
     def to_dict(self):
         return {"name": self.name, "age": self.age}
 
-user = User("Alice", 30)
-data = {"user": user.to_dict()}  # Convert to dict
-print(toons.dumps(data))
+
+print(toons.dumps({"user": User("Alice", 30).to_dict()}))
 # user:
 #   name: Alice
 #   age: 30
 ```
 
-## Type Preservation
+A structure that references itself, directly or indirectly, raises
+`ValueError`, and so does nesting deeper than 1000 containers.
 
-TOONS preserves types through round-trip serialization:
+## Round trips
+
+Types survive a round trip, except that tuples come back as lists and
+date-like objects come back as strings.
 
 ```python
 import toons
@@ -355,32 +262,16 @@ original = {
     "string": "hello",
     "int": 42,
     "float": 3.14,
-    "bool_true": True,
-    "bool_false": False,
+    "bool": True,
     "null": None,
     "array": [1, 2, 3],
-    "object": {"nested": "value"}
+    "object": {"nested": "value"},
 }
 
-# Round-trip
-toon_str = toons.dumps(original)
-parsed = toons.loads(toon_str)
-
-# Verify types preserved
-assert isinstance(parsed["string"], str)
-assert isinstance(parsed["int"], int)
-assert isinstance(parsed["float"], float)
-assert isinstance(parsed["bool_true"], bool)
-assert isinstance(parsed["bool_false"], bool)
-assert parsed["null"] is None
-assert isinstance(parsed["array"], list)
-assert isinstance(parsed["object"], dict)
-
-print("✓ All types preserved!")
+assert toons.loads(toons.dumps(original)) == original
 ```
 
-## See Also
+## See also
 
-- [API Reference](api-reference.md) - Function signatures
-- [Examples](examples.md) - Practical examples
-- [Specification](specification.md) - TOON format specification
+- [API Reference](api-reference.md)
+- [Complex Examples](examples.md)

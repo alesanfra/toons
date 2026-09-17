@@ -1,16 +1,18 @@
 # TOONS
 
-Fast TOON (Token Oriented Object Notation) parsing and serialization for Python.
+Fast TOON (Token Oriented Object Notation) parsing and serialization for
+Python, implemented in Rust.
 
-## Quick start
+TOONS mirrors the `json` module API: `loads`, `load`, `dumps`, `dump`, plus
+`to_json` for converting TOON to JSON.
 
-### Install
+## Install
 
 ```bash
 pip install toons
 ```
 
-### Parse and serialize
+## Parse and serialize
 
 ```python
 import toons
@@ -28,7 +30,7 @@ print(toons.dumps({"name": "Bob", "active": True}))
 # active: true
 ```
 
-### Files
+## Read and write files
 
 ```python
 import toons
@@ -40,13 +42,50 @@ with open("users.toon", "w") as f:
 
 with open("users.toon", "r") as f:
     loaded = toons.load(f)
+
+print(loaded == payload)
+# True
 ```
 
-## Official specification
+## Convert to JSON
 
-Refer to the [official TOON specification](https://github.com/toon-format/spec/blob/main/SPEC.md) for the formal grammar and rules:
+```python
+import toons
+
+print(toons.to_json("users[2]{id,name}:\n  1,A\n  2,B", indent=2))
+# {
+#   "users": [
+#     {
+#       "id": 1,
+#       "name": "A"
+#     },
+#     {
+#       "id": 2,
+#       "name": "B"
+#     }
+#   ]
+# }
+```
+
+## Specification
+
+TOONS implements **TOON specification v3.0**, validated on every build against
+the official conformance fixtures from
+[spec tag v3.0.1](https://github.com/toon-format/spec/tree/v3.0.1/tests).
+
+The upstream specification is now at v4.1. The v4 additions (comment lines,
+nested field groups, keyed tabular form, `key: []` for empty arrays, the
+`indentSize` rename) are not implemented yet.
+
+```python
+import toons
+
+print(toons.__toon_spec__)   # 3.0   specification version
+print(toons.__version__)     # 0.8.0 library version
+```
 
 ## Learn next
 
-- [Data Types](data-types.md)
-- [Complex Examples](examples.md)
+- [Data Types](data-types.md) - how Python values map to TOON
+- [Complex Examples](examples.md) - delimiters, key folding, path expansion
+- [API Reference](api-reference.md) - full signatures

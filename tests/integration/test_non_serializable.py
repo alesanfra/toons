@@ -1,8 +1,7 @@
-"""
-Tests for serialization of non-JSON-serializable Python objects.
+"""Serialization of Python objects that JSON cannot encode directly.
 
-Validates that datetime, time, date, and Decimal objects
-serialize to their string representations.
+datetime, date, and time encode as ISO 8601 strings; Decimal encodes as a
+number.
 """
 
 import io

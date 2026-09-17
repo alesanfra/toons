@@ -1,7 +1,7 @@
 # TOONS - Token Oriented Object Notation Serializer
 
 [![PyPI version](https://badge.fury.io/py/toons.svg)](https://badge.fury.io/py/toons)
-[![Python](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Documentation Status](https://readthedocs.org/projects/toons/badge/?version=latest)](https://toons.readthedocs.io/en/latest/?badge=latest)
 [![CI](https://github.com/alesanfra/toons/workflows/CI/badge.svg)](https://github.com/alesanfra/toons/actions)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/toons?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/toons)
@@ -9,64 +9,81 @@
 
 **A high-performance TOON (Token Oriented Object Notation) parser and serializer for Python.**
 
-TOONS - Token Oriented Object Notation Serializer - is a fast Rust-based library that provides a Python interface mirroring the `json` module API, making it easy to work with the TOON format—a token-efficient data serialization format designed specifically for Large Language Models.
+TOONS is a Rust implementation with a Python interface that mirrors the `json`
+module, for the TOON format: a token-efficient serialization format designed
+for Large Language Model contexts.
 
-TOONS is officially listed among the [community implementations of the TOON format](https://toonformat.dev/ecosystem/implementations.html#community-implementations).
-
-
-## Documentation
-
-📖 Read the full documentation at **[toons.readthedocs.io](https://toons.readthedocs.io/en/stable/)**.
-
-Quick start pages:
-- 🚀 **[Getting Started](https://toons.readthedocs.io/en/stable/getting-started/)** - Installation and first steps
-- 💡 **[Examples](https://toons.readthedocs.io/en/stable/examples/)** - Practical usage examples
-- 📚 **[API Reference](https://toons.readthedocs.io/en/stable/api-reference/)** - Complete API documentation
-
+TOONS is listed among the [community implementations of the TOON format](https://toonformat.dev/ecosystem/implementations.html#community-implementations).
 
 ## Why TOON?
 
-The TOON format achieves **30-60% fewer tokens** than equivalent JSON, making it ideal for LLM contexts where token count impacts costs and context capacity.
-
-In this simple example we can achive -40% with respect to JSON:
+TOON uses 30-60% fewer tokens than the equivalent JSON, which matters when
+data goes into a prompt. This example saves 40%:
 
 **JSON (26 tokens):**
+
 ```json
 {"users": [{"name": "Alice", "age": 25}, {"name": "Bob", "age": 30}]}
 ```
 
 **TOON (16 tokens):**
+
 ```
 users[2]{name,age}:
   Alice,25
   Bob,30
 ```
 
-> **Note**: Calculations were done using Anthropic Claude tokenizer, you can experiment with different tokenizer [here](https://huggingface.co/spaces/Xenova/the-tokenizer-playground)
-
+> Token counts measured with the Anthropic Claude tokenizer. Try other
+> tokenizers in the [tokenizer playground](https://huggingface.co/spaces/Xenova/the-tokenizer-playground).
 
 ## Features
 
-- 🚀 **Fast**: Rust implementation with PyO3 bindings
-- 📊 **Token-Efficient**: 30-60% fewer tokens than JSON
-- 🔄 **Familiar API**: Drop-in replacement for `json` module
-- ✅ **Spec Compliant**: Full TOON Specification v3.0 support
-- 🐍 **Python Native**: Works with standard Python types
+- **Fast**: Rust implementation with PyO3 bindings
+- **Token-efficient**: 30-60% fewer tokens than JSON
+- **Familiar API**: same shape as the `json` module
+- **Spec compliant**: TOON v3.0, validated against the official fixtures (see [TOON version](#toon-version))
+- **Typed**: type stubs ship with the wheel
 
-## Quick Start
+## TOON version
 
-### Installation
+**TOONS implements TOON specification v3.0.**
+
+Every release is validated against the official conformance fixtures from
+[spec tag v3.0.1](https://github.com/toon-format/spec/tree/v3.0.1/tests),
+vendored under `tests/integration/fixtures/` and run on every build.
+
+The upstream specification has since moved to v4.1. TOONS does **not** yet
+implement the v4 additions, notably:
+
+- `#` comment lines
+- nested field groups in tabular headers (`orders[2]{id,customer{name,country},total}:`)
+- keyed tabular form (`users[2:]{age,city}:`)
+- `key: []` for empty arrays (TOONS emits `key[0]:`)
+- the `indent` option renamed to `indentSize`
+
+v4 support is tracked as future work. The implemented specification version
+is readable at runtime, as spec Section 13 recommends:
+
+```python
+import toons
+
+print(toons.__toon_spec__)   # 3.0   specification version
+print(toons.__version__)     # 0.8.0 library version
+```
+
+## Install
 
 ```bash
 pip install toons
 ```
 
-### Basic Usage
+## Usage
 
 ```python
 import toons
 
-# Parse TOON string
+# Parse a TOON string
 data = toons.loads("""
 name: Alice
 age: 30
@@ -76,8 +93,7 @@ print(data)
 # {'name': 'Alice', 'age': 30, 'tags': ['python', 'rust', 'toon']}
 
 # Serialize to TOON
-user = {"name": "Bob", "age": 25, "active": True}
-print(toons.dumps(user))
+print(toons.dumps({"name": "Bob", "age": 25, "active": True}))
 # name: Bob
 # age: 25
 # active: true
@@ -90,56 +106,67 @@ print(toons.to_json("name: Alice\nage: 30", indent=2))
 # }
 ```
 
-### File Operations
+Files work the same way as in the `json` module:
 
 ```python
 import toons
 
-# Write to file
 with open("data.toon", "w") as f:
     toons.dump({"message": "Hello, TOON!"}, f)
 
-# Read from file
 with open("data.toon", "r") as f:
     data = toons.load(f)
 ```
 
+## Documentation
+
+Full documentation: **[toons.readthedocs.io](https://toons.readthedocs.io/en/stable/)**
+
+- [Quick Start](https://toons.readthedocs.io/en/stable/) - installation and first steps
+- [Data Types](https://toons.readthedocs.io/en/stable/data-types/) - how Python values map to TOON
+- [Complex Examples](https://toons.readthedocs.io/en/stable/examples/) - delimiters, key folding, path expansion
+- [API Reference](https://toons.readthedocs.io/en/stable/api-reference/) - full signatures
+
 ## Development
 
 ```bash
-# Clone repository
 git clone https://github.com/alesanfra/toons.git
 cd toons
 
-# Create venv and install dependencies
 uv venv -p 3.14
 uv sync --frozen
 
-# Build module
-uv run maturin develop --uv
-
-# Run tests
-uv run pytest
+uv run maturin develop --uv     # build the extension
+uv run --no-sync pytest         # run the tests
 ```
 
-See the [Development Guide](https://toons.readthedocs.io/en/stable/development/) for more details.
+`uv run` without `--no-sync` reinstalls the published wheel over the module
+you just built. See the [Development Guide](https://toons.readthedocs.io/en/stable/development/)
+and [AGENTS.md](AGENTS.md) for details.
 
-## Targets
+## Wheels
 
-Starting with v0.7.0, to optimize GitHub Actions free-tier credits, we no longer build binary wheels for these targets:
+Since v0.7.0, binary wheels are no longer built for the following targets,
+which had close to no downloads between 2026-04-20 and 2026-05-20:
 
-- Linux x86, s390x, and ppc64le, since we had 0 downloads during the period from 2026-04-20 to 2026-05-20
-- Linux armv7l, since we had only 6 downloads during the period from 2026-04-20 to 2026-05-20
-- Windows x86 (32-bit), since we had 0 downloads during the period from 2026-04-20 to 2026-05-20
+- Linux x86, s390x, ppc64le (0 downloads)
+- Linux armv7l (6 downloads)
+- Windows x86, 32-bit (0 downloads)
 
-Source distributions will remain available, so you will still be able to install `toons` if you also have the Rust compiler installed.
+Source distributions remain available, so `toons` still installs on those
+platforms when a Rust compiler is present.
 
 ## Contributing
 
-Contributions are welcome! Please follow [Conventional Commits](https://www.conventionalcommits.org/) and run tests before submitting.
+Contributions are welcome. Please read the
+[Contributing Guide](https://toons.readthedocs.io/en/stable/contributing/),
+follow [Conventional Commits](https://www.conventionalcommits.org/), and run
+the tests before opening a pull request.
 
-See [Contributing Guide](https://toons.readthedocs.io/en/stable/contributing/) for details.
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-This project is licensed under the Apache License 2.0. See LICENSE file for details.
+Apache License 2.0. See [LICENSE](LICENSE).
