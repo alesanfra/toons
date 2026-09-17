@@ -8,18 +8,16 @@ Working notes for coding agents (and humans) touching this repository.
 and built by [maturin](https://www.maturin.rs/). It encodes and decodes
 [TOON](https://github.com/toon-format/spec) (Token Oriented Object Notation)
 and exposes a `json`-like API: `loads`, `load`, `dumps`, `dump`, `to_json`,
-plus the `ToonDecodeError` exception.
+plus the `ToonDecodeError` exception. The spec's `indentSize` option is
+spelled `indent_size`; `strict` and `delimiter` keep their spec names.
 
-**Target specification: TOON v3.0**, exposed at runtime as
+**Target specification: TOON v4.1**, exposed at runtime as
 `toons.__toon_spec__` and pinned to the conformance fixtures of spec tag
-v3.0.1. Changing that constant means re-vendoring the fixtures and updating
+v4.1.1. Changing that constant means re-vendoring the fixtures and updating
 `README.md`, `docs/index.md`, and this file; `tests/integration/test_smoke.py`
-asserts its value so the change cannot pass unnoticed. Upstream is at v4.1; comment lines, nested field groups,
-keyed tabular form, `key: []` empty arrays, and the `indentSize` rename are
-v4 features and are deliberately absent. Do not implement one of them
-piecemeal: a v4 upgrade means re-vendoring the fixtures from a v4 tag and
-working through the whole diff, since v4 also changes decoding of some
-conforming v3 documents.
+asserts its value so the change cannot pass unnoticed. Key folding and path
+expansion were removed from the specification in v4.0 and must not come
+back: dotted keys are single literal keys.
 
 There is no Python source: everything importable is defined in Rust and
 described for type checkers in `toons.pyi`.
@@ -92,8 +90,15 @@ formatters and linters locally.
 
 ### Encoder invariants
 
+- The form follows from the value's shape and position, never from a
+  preference: tabular wherever `detect_tabular` succeeds, keyed tabular for
+  an object in field or root position where `detect_keyed` succeeds, list
+  form otherwise. A keyless header carries no field list, so an array that
+  is itself a list item never uses tabular form (Section 9.4).
 - `depth` is the indentation level of the line currently being written.
-  Children go one level deeper.
+  Children go one level deeper. A list-item object's fields stand at
+  `depth + 1`, the first of them carried on the hyphen line, so a scope that
+  field opens lands at `depth + 2` (Section 10).
 - A container writes its own newline and indentation only when it is not the
   root and not already positioned by a key.
 - Every container is registered with `Encoder::enter` and released with
@@ -107,8 +112,24 @@ formatters and linters locally.
 
 - Errors go through `Parser::err_here` / `Parser::err_at` so that
   `ToonDecodeError.line` and `.source` stay populated.
-- `strict=False` only relaxes documented leniencies (blank lines inside
-  arrays, indentation detection). It never changes the shape of valid data.
+- Comment lines are dropped in `Parser::new`, before indentation checks,
+  line classification, and every count. `Line.lineno` keeps the original
+  1-based number so errors still point at the source line.
+- `strict=False` only relaxes documented leniencies: blank lines inside a
+  header span, count and width mismatches, over-indented lines, duplicate
+  keys (last write wins), non-multiple indentation, and the key-value
+  fall-through for a malformed header. A scalar line outside root primitive
+  position, a missing colon, and a broken quoted token stay errors in both
+  modes.
+- A declared `[N]` never terminates or truncates a scope; it is only
+  checked against what the scope actually contained.
+- The parser recurses per container, so `Parser::enter` bounds nesting at
+  `MAX_NESTING`. Skipping it risks a stack overflow, which crashes the
+  interpreter rather than raising. `parse_field_list` carries its own
+  counter for nested field groups.
+- The choices the spec leaves open (numeric out-of-range policy, tab depth
+  in non-strict mode, key order) are documented in
+  `docs/data-types.md` under "Documented behavior"; keep it in sync.
 
 ## Tests
 
@@ -116,8 +137,9 @@ The suite is pytest only, with `@pytest.mark.parametrize` instead of loops,
 and assertions on complete output rather than substrings.
 
 - `test_spec_fixtures.py` runs the vendored spec fixtures for encode and
-  decode through all four entry points. Do not edit fixture JSON by hand:
-  it is copied from the spec repository.
+  decode through all four entry points, converting the fixtures' camelCase
+  option names to snake_case. Do not edit fixture JSON by hand: it is copied
+  from the spec repository.
 - `test_smoke.py`, `test_to_json.py`, `test_decode_errors.py`,
   `test_encode_errors.py`, `test_roundtrip.py`, `test_non_serializable.py`,
   `test_complex_regression.py` cover this implementation's own contract.
@@ -140,12 +162,11 @@ Every code block in `docs/` is expected to run as written and to produce the
 output shown in its comments. Verify examples against a freshly built module
 instead of copying them from memory.
 
-Read the Docs installs `docs/requirements.txt`; regenerate it after changing
-the `docs` dependency group:
-
-```bash
-uv export --only-group docs --no-hashes --no-emit-project -o docs/requirements.txt
-```
+Read the Docs builds with `uv sync` against `pyproject.toml` and `uv.lock`
+(`python.install` in `.readthedocs.yaml`), so the docs dependencies need no
+separate export. It compiles the extension too, with the `latest` Rust
+toolchain: pinning an old one there means the crate must stay within that
+compiler's features, which is what broke the 0.7.0 docs build.
 
 ## Conventions
 

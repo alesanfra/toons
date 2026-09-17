@@ -62,6 +62,7 @@ class TestDumps:
 | `test_decode_errors.py` | `ToonDecodeError` messages, `.line`, `.source` |
 | `test_encode_errors.py` | Unsupported types, cycles, option validation |
 | `test_roundtrip.py` | Nested arrays, large integers, tuples |
+| `test_v4_forms.py` | Comments, keyed tabular, field groups, numbers |
 | `test_non_serializable.py` | `datetime`, `date`, `time`, `Decimal` |
 | `test_stubs.py` | `toons.pyi` matches the compiled signatures |
 | `test_complex_regression.py` | Large mixed document |
@@ -71,15 +72,16 @@ class TestDumps:
 TOONS is validated against the
 [official TOON specification fixtures](https://github.com/toon-format/spec/tree/main/tests),
 a set of language-agnostic JSON files covering encoding and decoding:
-primitives, objects, arrays (inline, tabular, nested, mixed), delimiters,
-whitespace, key folding, path expansion, root forms, and error handling.
+primitives, objects (nested and keyed tabular), arrays (inline, tabular,
+nested, mixed), delimiters, whitespace, comment lines, root forms, and
+error handling.
 
 `tests/integration/test_spec_fixtures.py` loads every fixture file and runs
 each case through `dumps`, `dump`, `loads`, and `load`, asserting the exact
 expected output or the expected error when `shouldError` is set.
 
 The fixtures under `tests/integration/fixtures/` are copied verbatim from
-[spec tag v3.0.1](https://github.com/toon-format/spec/tree/v3.0.1/tests) and
+[spec tag v4.1.1](https://github.com/toon-format/spec/tree/v4.1.1/tests) and
 are byte-identical to it. Do not edit them by hand: re-vendor them from an
 upstream tag, and add implementation-specific cases in a regular test file.
 

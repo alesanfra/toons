@@ -1,7 +1,7 @@
 {
-  "version": "1.4",
+  "version": "4.0",
   "category": "decode",
-  "description": "Primitive array decoding - inline arrays of strings, numbers, booleans, quoted strings",
+  "description": "Primitive array decoding – inline arrays of strings, numbers, booleans, quoted strings",
   "tests": [
     {
       "name": "parses string arrays inline",
@@ -92,6 +92,14 @@
       "specSection": "9.1"
     },
     {
+      "name": "parses quoted empty string key with inline array",
+      "input": "\"\"[3]: 1,2,3",
+      "expected": {
+        "": [1, 2, 3]
+      },
+      "specSection": "9.1"
+    },
+    {
       "name": "parses quoted key containing brackets with inline array",
       "input": "\"key[test]\"[3]: 1,2,3",
       "expected": {
@@ -100,10 +108,50 @@
       "specSection": "9.1"
     },
     {
+      "name": "parses quoted key containing a colon with inline array",
+      "input": "\"a:b\"[2]: 1,2",
+      "expected": {
+        "a:b": [1, 2]
+      },
+      "specSection": "9.1"
+    },
+    {
       "name": "parses quoted key with empty array",
       "input": "\"x-custom\"[0]:",
       "expected": {
         "x-custom": []
+      },
+      "specSection": "9.1"
+    },
+    {
+      "name": "parses quoted empty string key with empty array",
+      "input": "\"\"[0]:",
+      "expected": {
+        "": []
+      },
+      "specSection": "9.1"
+    },
+    {
+      "name": "decodes canonical empty array key: []",
+      "input": "items: []",
+      "expected": {
+        "items": []
+      },
+      "specSection": "9.1"
+    },
+    {
+      "name": "decodes canonical empty array with quoted key",
+      "input": "\"x-custom\": []",
+      "expected": {
+        "x-custom": []
+      },
+      "specSection": "9.1"
+    },
+    {
+      "name": "decodes canonical empty array with empty-string key",
+      "input": "\"\": []",
+      "expected": {
+        "": []
       },
       "specSection": "9.1"
     }

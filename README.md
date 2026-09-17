@@ -42,35 +42,40 @@ users[2]{name,age}:
 - **Fast**: Rust implementation with PyO3 bindings
 - **Token-efficient**: 30-60% fewer tokens than JSON
 - **Familiar API**: same shape as the `json` module
-- **Spec compliant**: TOON v3.0, validated against the official fixtures (see [TOON version](#toon-version))
+- **Spec compliant**: TOON v4.1, validated against the official fixtures (see [TOON version](#toon-version))
 - **Typed**: type stubs ship with the wheel
 
 ## TOON version
 
-**TOONS implements TOON specification v3.0.**
+**TOONS implements TOON specification v4.1.**
 
 Every release is validated against the official conformance fixtures from
-[spec tag v3.0.1](https://github.com/toon-format/spec/tree/v3.0.1/tests),
+[spec tag v4.1.1](https://github.com/toon-format/spec/tree/v4.1.1/tests),
 vendored under `tests/integration/fixtures/` and run on every build.
 
-The upstream specification has since moved to v4.1. TOONS does **not** yet
-implement the v4 additions, notably:
+The v4 features are all supported:
 
-- `#` comment lines
-- nested field groups in tabular headers (`orders[2]{id,customer{name,country},total}:`)
-- keyed tabular form (`users[2:]{age,city}:`)
-- `key: []` for empty arrays (TOONS emits `key[0]:`)
-- the `indent` option renamed to `indentSize`
+- `#` comment lines, stripped before any other rule
+- nested field groups in tabular headers
+  (`orders[2]{id,customer{name,country},total}:`)
+- keyed tabular form for objects of uniform objects (`users[2:]{age,city}:`)
+- `key: []` and `[]` for empty arrays
+- the normative decoder number grammar (`.5`, `+5`, `0x10`, `NaN` are strings)
 
-v4 support is tracked as future work. The implemented specification version
-is readable at runtime, as spec Section 13 recommends:
+The implemented specification version is readable at runtime, as spec
+Section 13 recommends:
 
 ```python
 import toons
 
-print(toons.__toon_spec__)   # 3.0   specification version
+print(toons.__toon_spec__)   # 4.1   specification version
 print(toons.__version__)     # 0.8.0 library version
 ```
+
+Key folding and path expansion were removed from the specification in v4.0,
+so the `key_folding`, `flatten_depth`, and `expand_paths` options are gone.
+The `indent` option is now spelled `indent_size`, matching the spec's
+`indentSize`; `indent` keeps working as an alias.
 
 ## Install
 
@@ -124,7 +129,7 @@ Full documentation: **[toons.readthedocs.io](https://toons.readthedocs.io/en/sta
 
 - [Quick Start](https://toons.readthedocs.io/en/stable/) - installation and first steps
 - [Data Types](https://toons.readthedocs.io/en/stable/data-types/) - how Python values map to TOON
-- [Complex Examples](https://toons.readthedocs.io/en/stable/examples/) - delimiters, key folding, path expansion
+- [Complex Examples](https://toons.readthedocs.io/en/stable/examples/) - delimiters, tabular forms, strict mode
 - [API Reference](https://toons.readthedocs.io/en/stable/api-reference/) - full signatures
 
 ## Development

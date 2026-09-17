@@ -1,6 +1,7 @@
 # Complex examples
 
-Practical uses of the optional encoder and decoder arguments.
+Practical uses of the optional encoder and decoder arguments, and of the
+forms TOON picks for you.
 
 ## Custom delimiters
 
@@ -21,78 +22,95 @@ print(toons.dumps(data, delimiter="|"))
 A non-comma delimiter pays off when the values themselves contain commas,
 since those values no longer need quoting.
 
-## Key folding
+## Keyed tabular form
 
-Key folding rewrites a chain of single-key objects as one dotted key. It
-applies only when every object in the chain has exactly one key and every
-segment can be written unquoted.
-
-```python
-import toons
-
-print(toons.dumps({"user": {"profile": {"name": "Alice"}}}, key_folding="safe"))
-# user.profile.name: Alice
-
-print(toons.dumps({"a": {"b": {"c": [1, 2, 3]}}}, key_folding="safe"))
-# a.b.c[3]: 1,2,3
-```
-
-An object with more than one key stops the chain, so nothing is folded:
+An object whose values are two or more uniform objects collapses into one
+keyed header, with the entry key in front of each row:
 
 ```python
 import toons
 
-payload = {"user": {"profile": {"name": "Alice", "role": "admin"}}}
+servers = {
+    "servers": {
+        "alpha": {"host": "a", "port": 8080},
+        "beta": {"host": "b", "port": 9090},
+    }
+}
 
-print(toons.dumps(payload, key_folding="safe"))
-# user:
-#   profile:
-#     name: Alice
-#     role: admin
+print(toons.dumps(servers))
+# servers[2:]{host,port}:
+#   alpha: a,8080
+#   beta: b,9090
+
+print(toons.loads(toons.dumps(servers)) == servers)
+# True
 ```
 
-`flatten_depth` caps how many segments a folded key may contain:
+The form is chosen from the data, not by an option. An object with one
+entry, with entry values of differing shapes, or with a non-object value
+stays in nested form.
+
+## Nested field groups
+
+A tabular column whose values are uniform objects becomes a nested field
+group, so the rows stay flat:
 
 ```python
 import toons
 
-print(toons.dumps({"a": {"b": {"c": {"d": 1}}}}, key_folding="safe", flatten_depth=2))
-# a.b:
-#   c:
-#     d: 1
+orders = {
+    "orders": [
+        {"id": 1, "customer": {"name": "Ada", "country": "DK"}, "total": 99},
+        {"id": 2, "customer": {"name": "Bob", "country": "UK"}, "total": 149},
+    ]
+}
+
+print(toons.dumps(orders))
+# orders[2]{id,customer{name,country},total}:
+#   1,Ada,DK,99
+#   2,Bob,UK,149
 ```
 
-Folding is skipped when the folded key would collide with a literal sibling
-key, so decoding stays unambiguous.
+Cells map to the header's leaf fields in depth-first order, and nesting is
+not capped.
 
-## Path expansion
+## Comment lines
 
-Path expansion is the decoding counterpart of key folding: it turns dotted
-keys back into nested objects.
+A line whose first non-space character is `#` is a comment. The decoder
+removes comment lines before every other rule, so a comment never ends a
+scope or counts as a row. There are no inline or trailing comments, and the
+encoder never writes one.
 
 ```python
 import toons
 
 toon_str = """
-user.name: Alice
-user.age: 30
+# inventory snapshot
+items[2]{sku,qty}:
+  A1,2
+  # restocked
+  B2,7
 """
 
-print(toons.loads(toon_str, expand_paths="safe"))
-# {'user': {'name': 'Alice', 'age': 30}}
-
 print(toons.loads(toon_str))
-# {'user.name': 'Alice', 'user.age': 30}
+# {'items': [{'sku': 'A1', 'qty': 2}, {'sku': 'B2', 'qty': 7}]}
 ```
 
-`"safe"` expands unquoted keys only, leaving a quoted `"user.name"` as a
-literal key. `"always"` expands quoted keys too. In strict mode, a conflict
-between an expanded path and an existing value raises `ToonDecodeError`.
+Because `#` only starts a comment at the beginning of a line, a string value
+that starts with `#` is quoted on encoding:
+
+```python
+import toons
+
+print(toons.dumps({"note": "#x"}))
+# note: "#x"
+```
 
 ## Relaxed parsing
 
 `strict=False` tolerates input that the specification rejects, such as blank
-lines inside an array:
+lines inside an array, a count that does not match the declared length, and
+duplicate keys (last write wins):
 
 ```python
 import toons
@@ -106,9 +124,12 @@ items[2]:
 
 print(toons.loads(toon_str, strict=False))
 # {'items': [1, 2]}
+
+print(toons.loads("name: Ada\nname: Bob", strict=False))
+# {'name': 'Bob'}
 ```
 
-In strict mode, the same input raises:
+In strict mode, the same inputs raise:
 
 ```python
 import toons
@@ -125,21 +146,24 @@ except toons.ToonDecodeError as exc:
 ```python
 import toons
 
-print(toons.dumps({"config": {"host": "localhost", "port": 5432}}, indent=4))
+print(toons.dumps({"config": {"host": "localhost", "port": 5432}}, indent_size=4))
 # config:
 #     host: localhost
 #     port: 5432
 ```
 
+`indent` is accepted as an alias of `indent_size`, so older code keeps
+working; passing both with different values raises `ValueError`.
+
 The minimum is 2 spaces; smaller values raise `ValueError`. When decoding,
-`indent` states the expected indentation instead of detecting it from the
-input, which makes indentation errors detectable:
+`indent_size` states the expected indentation, which is what makes
+indentation errors detectable:
 
 ```python
 import toons
 
 try:
-    toons.loads("a:\n   b: 1", indent=2)
+    toons.loads("a:\n   b: 1", indent_size=2)
 except toons.ToonDecodeError as exc:
     print(exc)
 # TOON parse error at line 2: Indentation 3 is not a multiple of indent size 2
@@ -172,7 +196,7 @@ try:
     toons.loads("items[3]: a,b")
 except toons.ToonDecodeError as exc:
     print(exc.line, repr(exc.source), str(exc))
-# 1 'items[3]: a,b' TOON parse error at line 1: Array declared length 3 but found 2 elements
+# 1 'items[3]: a,b' TOON parse error at line 1: Array declared length 3 but found 2 values
 ```
 
 Encoding failures raise `TypeError` for unsupported values and `ValueError`

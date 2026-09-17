@@ -19,7 +19,7 @@ class TestModuleMetadata:
         Bumping this means re-vendoring the conformance fixtures and updating
         README.md, docs/index.md, and AGENTS.md.
         """
-        assert toons.__toon_spec__ == "3.0"
+        assert toons.__toon_spec__ == "4.1"
 
 
 class TestSmokeLoads:
@@ -74,10 +74,10 @@ class TestSmokeDumps:
         assert "Alice" in result
         assert "Bob" in result
 
-    def test_dumps_with_indent(self):
-        """dumps() respects indent parameter."""
+    def test_dumps_with_indent_size(self):
+        """dumps() respects indent_size parameter."""
         data = {"parent": {"child": "value"}}
-        result = toons.dumps(data, indent=4)
+        result = toons.dumps(data, indent_size=4)
         lines = result.split("\n")
         assert lines[0] == "parent:"
         assert lines[1] == "    child: value"
@@ -87,6 +87,35 @@ class TestSmokeDumps:
         data = [1, 2, 3]
         result = toons.dumps(data, delimiter="|")
         assert result == "[3|]: 1|2|3"
+
+
+class TestIndentAlias:
+    """`indent` stays accepted as an alias of `indent_size`."""
+
+    @pytest.mark.parametrize("option", ["indent", "indent_size"])
+    def test_encoder_accepts_both_spellings(self, option):
+        """dumps() and dump() indent with either spelling."""
+        data = {"user": {"name": "Alice"}}
+        expected = "user:\n    name: Alice"
+
+        assert toons.dumps(data, **{option: 4}) == expected
+
+        fp = io.StringIO()
+        toons.dump(data, fp, **{option: 4})
+        assert fp.getvalue() == expected
+
+    @pytest.mark.parametrize("option", ["indent", "indent_size"])
+    def test_decoder_accepts_both_spellings(self, option):
+        """loads() and load() read the expected indentation either way."""
+        toon_str = "user:\n    name: Alice"
+        expected = {"user": {"name": "Alice"}}
+
+        assert toons.loads(toon_str, **{option: 4}) == expected
+        assert toons.load(io.StringIO(toon_str), **{option: 4}) == expected
+
+    def test_to_json_indent_is_the_json_indent(self):
+        """to_json() keeps `indent` for the JSON output, not the TOON input."""
+        assert toons.to_json("a: 1", indent=2) == '{\n  "a": 1\n}'
 
 
 class TestSmokeDump:
@@ -100,11 +129,11 @@ class TestSmokeDump:
         result = fp.getvalue()
         assert result == "key: value"
 
-    def test_dump_with_indent(self):
-        """dump() respects indent parameter."""
+    def test_dump_with_indent_size(self):
+        """dump() respects indent_size parameter."""
         data = {"parent": {"child": "value"}}
         fp = io.StringIO()
-        toons.dump(data, fp, indent=4)
+        toons.dump(data, fp, indent_size=4)
         result = fp.getvalue()
         assert "    child: value" in result
 

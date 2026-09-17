@@ -37,18 +37,16 @@ def load(
     fp: IO[str],
     *,
     strict: bool = True,
-    expand_paths: Optional[str] = None,
+    indent_size: Optional[int] = None,
     indent: Optional[int] = None,
 ) -> Any:
     """Parse TOON read from a text file object.
 
     Args:
         fp: File-like object with a .read() method.
-        strict: Enforce strict TOON v3.0 compliance.
-        expand_paths: Expand dotted keys into nested objects: None, "off",
-            "safe", or "always".
-        indent: Expected spaces per indentation level, or None to detect it
-            from the input.
+        strict: Enforce strict TOON v4.1 compliance.
+        indent_size: Expected spaces per indentation level (default 2).
+        indent: Deprecated alias of indent_size.
 
     Returns:
         The parsed Python object.
@@ -63,18 +61,16 @@ def loads(
     s: str,
     *,
     strict: bool = True,
-    expand_paths: Optional[str] = None,
+    indent_size: Optional[int] = None,
     indent: Optional[int] = None,
 ) -> Any:
     """Parse a TOON string.
 
     Args:
         s: TOON-formatted string.
-        strict: Enforce strict TOON v3.0 compliance.
-        expand_paths: Expand dotted keys into nested objects: None, "off",
-            "safe", or "always".
-        indent: Expected spaces per indentation level, or None to detect it
-            from the input.
+        strict: Enforce strict TOON v4.1 compliance.
+        indent_size: Expected spaces per indentation level (default 2).
+        indent: Deprecated alias of indent_size.
 
     Returns:
         The parsed Python object.
@@ -90,17 +86,18 @@ def to_json(
     s: str,
     *,
     strict: bool = True,
-    expand_paths: Optional[str] = None,
+    indent_size: Optional[int] = None,
     indent: Optional[int] = None,
 ) -> str:
     """Convert a TOON string to a JSON string.
 
     Args:
         s: TOON-formatted string.
-        strict: Enforce strict TOON v3.0 compliance.
-        expand_paths: Expand dotted keys into nested objects: None, "off",
-            "safe", or "always".
+        strict: Enforce strict TOON v4.1 compliance.
+        indent_size: Expected spaces per TOON indentation level (default 2).
         indent: Spaces per JSON indentation level, or None for compact JSON.
+            Unlike in the other functions, this is not an alias of
+            indent_size: it is passed to ``json.dumps``.
 
     Returns:
         JSON-formatted string.
@@ -115,21 +112,18 @@ def dump(
     obj: Any,
     fp: IO[str],
     *,
-    indent: int = 2,
+    indent_size: Optional[int] = None,
     delimiter: str = ",",
-    key_folding: Optional[str] = None,
-    flatten_depth: Optional[int] = None,
+    indent: Optional[int] = None,
 ) -> None:
     """Serialize an object to TOON and write it to a file object.
 
     Args:
         obj: Object to serialize.
         fp: File-like object with a .write() method.
-        indent: Spaces per indentation level (minimum 2).
-        delimiter: Array and tabular delimiter: ",", "\\t", or "|".
-        key_folding: Fold single-key object chains into dotted keys: None or
-            "off" to disable, "safe" to enable.
-        flatten_depth: Maximum number of segments in a folded key.
+        indent_size: Spaces per indentation level (default 2, minimum 2).
+        delimiter: Document delimiter: ",", "\\t", or "|".
+        indent: Deprecated alias of indent_size.
 
     Raises:
         TypeError: If a value cannot be encoded, or a key is not a string.
@@ -141,21 +135,18 @@ def dump(
 def dumps(
     obj: Any,
     *,
-    indent: int = 2,
+    indent_size: Optional[int] = None,
     delimiter: str = ",",
-    key_folding: Optional[str] = None,
-    flatten_depth: Optional[int] = None,
+    indent: Optional[int] = None,
 ) -> str:
     """Serialize an object to a TOON string.
 
     Args:
         obj: Object to serialize. dict, list, tuple, str, int, float, bool,
             None, and date/time/datetime objects are supported.
-        indent: Spaces per indentation level (minimum 2).
-        delimiter: Array and tabular delimiter: ",", "\\t", or "|".
-        key_folding: Fold single-key object chains into dotted keys: None or
-            "off" to disable, "safe" to enable.
-        flatten_depth: Maximum number of segments in a folded key.
+        indent_size: Spaces per indentation level (default 2, minimum 2).
+        delimiter: Document delimiter: ",", "\\t", or "|".
+        indent: Deprecated alias of indent_size.
 
     Returns:
         TOON-formatted string.

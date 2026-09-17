@@ -1,7 +1,7 @@
 {
-  "version": "1.4",
+  "version": "4.0",
   "category": "decode",
-  "description": "Primitive value decoding - strings, numbers, booleans, null, unescaping",
+  "description": "Primitive value decoding – strings, numbers, booleans, null, unescaping",
   "tests": [
     {
       "name": "parses safe unquoted string",
@@ -49,6 +49,18 @@
       "name": "parses quoted string with escaped quotes",
       "input": "\"say \\\"hello\\\"\"",
       "expected": "say \"hello\"",
+      "specSection": "7.1"
+    },
+    {
+      "name": "decodes \\uXXXX escape (U+0004)",
+      "input": "val: \"a\\u0004b\"",
+      "expected": { "val": "a\u0004b" },
+      "specSection": "7.1"
+    },
+    {
+      "name": "decodes \\uXXXX with mixed-case hex digits",
+      "input": "val: \"a\\u00Abb\"",
+      "expected": { "val": "a«b" },
       "specSection": "7.1"
     },
     {
@@ -115,8 +127,7 @@
       "name": "respects ambiguity quoting for true",
       "input": "\"true\"",
       "expected": "true",
-      "specSection": "7.4",
-      "note": "Quoted primitive remains string"
+      "specSection": "7.4"
     },
     {
       "name": "respects ambiguity quoting for false",
@@ -153,6 +164,12 @@
       "input": "\"05\"",
       "expected": "05",
       "specSection": "7.4"
+    },
+    {
+      "name": "decodes supplementary scalar (U+1F680) in quoted string as literal UTF-8",
+      "input": "\"🚀 launch\"",
+      "expected": "🚀 launch",
+      "specSection": "7.1"
     }
   ]
 }

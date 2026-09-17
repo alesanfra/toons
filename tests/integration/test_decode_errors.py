@@ -32,7 +32,7 @@ class TestToonDecodeErrorAttributes:
         assert exc.line == 5
         assert exc.source == "      tags[3|]:"
         assert "TOON parse error at line 5" in str(exc)
-        assert "Array declared length 3 but found 0 elements" in str(exc)
+        assert "Array declared length 3 but found 0 items" in str(exc)
 
     def test_indentation_error_attaches_offending_line(self):
         """Strict-mode indentation errors include the offending line verbatim."""
@@ -75,15 +75,48 @@ class TestToonDecodeErrorClassHierarchy:
             assert hasattr(exc, "source")
 
 
-class TestPathExpansionErrorClass:
-    """Path expansion conflicts must also raise ToonDecodeError, not a
-    bare ValueError — they are parse-time decode errors."""
+class TestNestingLimit:
+    """Deeply nested input is rejected, not crashed: the parser recurses per
+    level, so the documented depth limit of Section 15 keeps it off the
+    stack limit."""
 
-    def test_path_expansion_conflict_raises_toon_decode_error(self):
-        """Same key reached via plain and via path expansion conflicts when
-        strict expand_paths='safe' detects the type mismatch."""
-        # `parent: scalar` then a dotted key `parent.child: 1` would try to
-        # turn `parent` into a dict — a type conflict in strict mode.
-        content = "parent: scalar\nparent.child: 1\n"
+    @pytest.mark.parametrize(
+        "toon_str",
+        [
+            pytest.param(
+                "\n".join("  " * i + f"k{i}:" for i in range(1500)),
+                id="objects",
+            ),
+            pytest.param(
+                "a[1]:\n"
+                + "".join("  " * (i + 1) + "- [1]:\n" for i in range(1500)),
+                id="arrays",
+            ),
+            pytest.param(
+                "a[1]{" + "g{" * 1500 + "x" + "}" * 1500 + "}:\n  1",
+                id="field-groups",
+            ),
+        ],
+    )
+    def test_nesting_beyond_the_limit_raises(self, toon_str):
+        """Nesting deeper than 1000 containers raises ToonDecodeError."""
+        with pytest.raises(
+            toons.ToonDecodeError, match="Maximum nesting depth"
+        ):
+            toons.loads(toon_str)
+
+
+class TestDuplicateKeyErrorClass:
+    """Duplicate sibling keys are a strict-mode decode error (Section 14.3),
+    resolved last-write-wins when strict is off."""
+
+    def test_duplicate_key_raises_toon_decode_error(self):
+        """Two sibling fields with the same key are rejected in strict mode."""
         with pytest.raises(toons.ToonDecodeError):
-            toons.loads(content, expand_paths="safe")
+            toons.loads("name: Ada\nname: Bob\n")
+
+    def test_duplicate_key_last_write_wins(self):
+        """Non-strict mode keeps the last value, silently."""
+        assert toons.loads("name: Ada\nname: Bob\n", strict=False) == {
+            "name": "Bob"
+        }
