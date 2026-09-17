@@ -16,13 +16,13 @@ data = {
 with tempfile.TemporaryDirectory() as tmp_dir:
     path = Path(tmp_dir) / "data.toon"
 
-    with path.open("w") as f:
+    with path.open("w", encoding="utf-8") as f:
         toons.dump(data, f)
 
     print("File content:")
     print(path.read_text())
 
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         loaded = toons.load(f)
 
 print("\nLoaded:", loaded)
