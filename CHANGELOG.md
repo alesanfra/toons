@@ -75,7 +75,8 @@ All notable changes to this project are documented here. The format follows
   against `pyproject.toml` and `uv.lock`, so the exported
   `docs/requirements.txt` is gone.
 - Publishing to PyPI runs in its own `pypi` environment, so a tagged release
-  shows up under the repository's Deployments and can be gated there.
+  shows up under the repository's Deployments and can be gated there, and it
+  authenticates with trusted publishing instead of a stored API token.
 
 ### Removed
 

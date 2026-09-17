@@ -186,4 +186,7 @@ Version lives in `Cargo.toml` and is re-exported as `toons.__version__`;
 attest them in the `release` job, and upload them in the `publish` job. That
 job names the `pypi` environment, so each release is recorded under the
 repository's Deployments; protections configured there (reviewers, branch
-and tag rules) gate the upload.
+and tag rules) gate the upload. The upload authenticates through PyPI
+trusted publishing, which is bound to this workflow file and that
+environment name: renaming either breaks publishing until the publisher is
+updated on PyPI.

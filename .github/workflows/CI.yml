@@ -250,6 +250,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v10.1.0
       - name: Publish to PyPI
-        run: uv publish 'wheels-*/*'
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        # Trusted publishing: PyPI mints a short-lived token from the job's
+        # OIDC identity, so no API token is stored. "always" fails loudly if
+        # that identity is missing instead of falling back.
+        run: uv publish --trusted-publishing always 'wheels-*/*'
