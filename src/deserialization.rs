@@ -40,27 +40,26 @@ pub fn deserialize(
     parser.parse(py)
 }
 
-/// Check if a segment is a valid identifier for path expansion (unquoted alphanumeric with dots/underscores)
-fn is_valid_identifier_segment(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-    // Must start with letter or underscore
-    let mut chars = s.chars();
-    let first = chars.next().unwrap();
-    if !first.is_ascii_alphabetic() && first != '_' {
-        return false;
-    }
-    // Rest can be alphanumeric, underscore, or dot
-    for c in chars {
-        if !c.is_ascii_alphanumeric() && c != '_' && c != '.' {
-            return false;
-        }
-    }
-    true
+/// Report whether a token is a plain sequence of digits.
+fn is_integer_literal(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
 }
 
-/// Check if setting a key would conflict with existing path-expanded keys
+/// Report whether a path segment matches `[A-Za-z_][A-Za-z0-9_.]*`, the
+/// only shape that path expansion accepts.
+fn is_valid_identifier_segment(s: &str) -> bool {
+    let mut chars = s.chars();
+
+    match chars.next() {
+        Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
+        _ => return false,
+    }
+
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+}
+
+/// Reject a key whose existing value has an incompatible shape, which would
+/// otherwise make path expansion lossy. Only enforced in strict mode.
 pub fn check_key_conflict(
     target: &Bound<'_, PyDict>,
     key: &str,
@@ -72,7 +71,6 @@ pub fn check_key_conflict(
     }
 
     if let Some(existing) = target.get_item(key)? {
-        // Check type compatibility
         let existing_is_dict = existing.cast::<PyDict>().is_ok();
         let new_is_dict = new_value.cast::<PyDict>().is_ok();
         let existing_is_list = existing.cast::<PyList>().is_ok();
@@ -95,8 +93,8 @@ pub fn check_key_conflict(
     Ok(())
 }
 
-/// Split a dotted key into segments for path expansion
-/// Returns None if the key should not be expanded (e.g., contains invalid segments)
+/// Split a dotted key into path segments, or return `None` when the key is
+/// not expandable.
 pub fn split_dotted_key(key: &str) -> Option<Vec<&str>> {
     if !key.contains('.') {
         return None;
@@ -104,7 +102,6 @@ pub fn split_dotted_key(key: &str) -> Option<Vec<&str>> {
 
     let segments: Vec<&str> = key.split('.').collect();
 
-    // All segments must be valid identifiers
     for segment in &segments {
         if !is_valid_identifier_segment(segment) {
             return None;
@@ -114,8 +111,9 @@ pub fn split_dotted_key(key: &str) -> Option<Vec<&str>> {
     Some(segments)
 }
 
-/// Deep merge a value into an existing object at the given path
-/// Returns Ok if successful, Err if there's a type conflict in strict mode
+/// Merge a value into `target` at the given path, creating intermediate
+/// objects. Strict mode rejects a type conflict; otherwise the last write
+/// wins.
 pub fn deep_merge_path(
     py: Python,
     target: &Bound<'_, PyDict>,
@@ -128,14 +126,11 @@ pub fn deep_merge_path(
     }
 
     if path_segments.len() == 1 {
-        // Last segment - set the value
         let key = path_segments[0];
 
         if strict && target.contains(key)? {
-            // In strict mode, check for conflicts
             let existing = target.get_item(key)?;
             if let Some(existing_val) = existing {
-                // Check if types are incompatible
                 let existing_is_dict = existing_val.cast::<PyDict>().is_ok();
                 let new_is_dict = value.bind(py).cast::<PyDict>().is_ok();
                 let existing_is_list = existing_val.cast::<PyList>().is_ok();
@@ -160,16 +155,13 @@ pub fn deep_merge_path(
         return Ok(());
     }
 
-    // Navigate/create intermediate objects
     let first_segment = path_segments[0];
     let remaining_segments = &path_segments[1..];
 
     let next_obj = if let Some(existing) = target.get_item(first_segment)? {
-        // Check if it's a dict
         if let Ok(dict) = existing.cast::<PyDict>() {
             dict.clone()
         } else {
-            // Type conflict - existing value is not an object
             if strict {
                 return Err(make_decode_error(
                     py,
@@ -181,13 +173,11 @@ pub fn deep_merge_path(
                     None,
                 ));
             }
-            // In non-strict mode, overwrite with new object (LWW)
             let new_dict = PyDict::new(py);
             target.set_item(first_segment, &new_dict)?;
             new_dict
         }
     } else {
-        // Create new intermediate object
         let new_dict = PyDict::new(py);
         target.set_item(first_segment, &new_dict)?;
         new_dict
@@ -298,7 +288,6 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(&mut self, py: Python) -> PyResult<Py<PyAny>> {
-        // Auto-detect indentation size
         self.detect_indent_size();
 
         // Root form detection per TOON Spec v3.0 Section 5
@@ -317,20 +306,19 @@ impl<'a> Parser<'a> {
         self.validate_indentation(py, first_line)?;
         let first_line_trimmed = first_line.trim();
 
-        // Check if it's a root array header - can be [N]: or [N]{fields}:
-        if first_line_trimmed.starts_with('[') && first_line_trimmed.contains(':') {
-            // Make sure it's not an object field by checking there's no space before [
-            if first_line == first_line_trimmed {
-                return self.parse_root_array(py);
-            }
+        // A root array header is `[N]:` or `[N]{fields}:` at column zero.
+        if first_line_trimmed.starts_with('[')
+            && first_line_trimmed.contains(':')
+            && first_line == first_line_trimmed
+        {
+            return self.parse_root_array(py);
         }
 
-        // Check if it's a single primitive (one line, no colon outside quotes, not a header)
+        // A single line without an unquoted colon is a bare primitive.
         if self.lines.len() == 1 && self.find_key_value_colon(first_line_trimmed).is_none() {
             return self.parse_primitive(py, first_line_trimmed);
         }
 
-        // Otherwise, parse as object
         self.parse_object(py, 0)
     }
 
@@ -432,9 +420,9 @@ impl<'a> Parser<'a> {
                     let value = self.parse_field_array(py, line_trimmed, depth)?;
 
                     // Extract key name before the array bracket
-                    let key_name = if key_part.starts_with('"') {
-                        // Quoted key - find the closing quote
-                        if let Some(close_quote) = key_part[1..].find('"').map(|p| p + 1) {
+                    let key_name = if let Some(after_quote) = key_part.strip_prefix('"') {
+                        // Quoted key: the name ends at the closing quote.
+                        if let Some(close_quote) = after_quote.find('"').map(|p| p + 1) {
                             &key_part[..close_quote + 1]
                         } else {
                             key_part.split('[').next().unwrap()
@@ -445,30 +433,13 @@ impl<'a> Parser<'a> {
                         key_part
                     };
 
-                    // Check for path expansion on the key name
-                    let (should_expand, was_quoted) = self.should_expand_key(key_name);
-                    if should_expand {
-                        if let Some(segments) = split_dotted_key(key_name) {
-                            deep_merge_path(py, &dict, &segments, value, self.strict)?;
-                        } else {
-                            check_key_conflict(&dict, key_name, value.bind(py), self.strict)?;
-                            let key = self.parse_key(py, key_name)?;
-                            dict.set_item(key, value)?;
-                        }
-                    } else {
-                        let key = if was_quoted {
-                            self.parse_key(py, key_name)?
-                        } else {
-                            key_name.to_string()
-                        };
-                        check_key_conflict(&dict, &key, value.bind(py), self.strict)?;
-                        dict.set_item(key, value)?;
-                    }
+                    let (should_expand, _) = self.should_expand_key(key_name);
+                    let key = self.parse_key(py, key_name)?;
+                    self.insert_key(py, &dict, &key, should_expand, value)?;
                     continue;
                 }
 
-                // Parse the key and check if it was quoted
-                let (should_expand, was_quoted) = self.should_expand_key(key_part);
+                let (should_expand, _) = self.should_expand_key(key_part);
                 let parsed_key = self.parse_key(py, key_part)?;
                 self.pos += 1;
 
@@ -508,34 +479,12 @@ impl<'a> Parser<'a> {
                         PyDict::new(py).into()
                     };
 
-                    // Apply path expansion if enabled
-                    if should_expand && !was_quoted {
-                        if let Some(segments) = split_dotted_key(&parsed_key) {
-                            deep_merge_path(py, &dict, &segments, value, self.strict)?;
-                        } else {
-                            check_key_conflict(&dict, &parsed_key, value.bind(py), self.strict)?;
-                            dict.set_item(parsed_key, value)?;
-                        }
-                    } else {
-                        check_key_conflict(&dict, &parsed_key, value.bind(py), self.strict)?;
-                        dict.set_item(parsed_key, value)?;
-                    }
+                    self.insert_key(py, &dict, &parsed_key, should_expand, value)?;
                 } else {
                     // Primitive value
                     let value = self.parse_primitive(py, value_part)?;
 
-                    // Apply path expansion if enabled
-                    if should_expand && !was_quoted {
-                        if let Some(segments) = split_dotted_key(&parsed_key) {
-                            deep_merge_path(py, &dict, &segments, value, self.strict)?;
-                        } else {
-                            check_key_conflict(&dict, &parsed_key, value.bind(py), self.strict)?;
-                            dict.set_item(parsed_key, value)?;
-                        }
-                    } else {
-                        check_key_conflict(&dict, &parsed_key, value.bind(py), self.strict)?;
-                        dict.set_item(parsed_key, value)?;
-                    }
+                    self.insert_key(py, &dict, &parsed_key, should_expand, value)?;
                 }
             } else {
                 // Missing colon error
@@ -544,6 +493,26 @@ impl<'a> Parser<'a> {
         }
 
         Ok(dict.into())
+    }
+
+    /// Store `value` under `key`, expanding a dotted key into nested objects
+    /// when path expansion applies to it.
+    fn insert_key(
+        &self,
+        py: Python,
+        dict: &Bound<'_, PyDict>,
+        key: &str,
+        should_expand: bool,
+        value: Py<PyAny>,
+    ) -> PyResult<()> {
+        if should_expand {
+            if let Some(segments) = split_dotted_key(key) {
+                return deep_merge_path(py, dict, &segments, value, self.strict);
+            }
+        }
+
+        check_key_conflict(dict, key, value.bind(py), self.strict)?;
+        dict.set_item(key, value)
     }
 
     pub fn parse_field_array(
@@ -847,15 +816,30 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if item_str.starts_with('[') && item_str.contains("]:") {
-                let header_part = item_str.split("]:").next().unwrap();
-                let header_with_bracket = format!("{}]", header_part);
-                let (inner_len, inner_delim, _) =
-                    self.parse_header(py, &header_with_bracket, item_line_idx)?;
+            let nested_header_end = if item_str.starts_with('[') {
+                self.find_unquoted_char(item_str, ':')
+            } else {
+                None
+            };
 
-                let after_colon = item_str.split("]:").nth(1).unwrap_or("").trim();
+            if let Some(colon_pos) = nested_header_end {
+                let (inner_len, inner_delim, inner_fields) =
+                    self.parse_header(py, &item_str[..colon_pos], item_line_idx)?;
 
-                if after_colon.is_empty() {
+                let after_colon = item_str[colon_pos + 1..].trim();
+
+                if let Some(field_names) = inner_fields {
+                    // Nested tabular array: rows follow one level deeper.
+                    let value = self.parse_tabular_array(
+                        py,
+                        inner_len,
+                        inner_delim,
+                        &field_names,
+                        expected_depth + 1,
+                        item_line_idx,
+                    )?;
+                    list.append(value)?;
+                } else if after_colon.is_empty() {
                     let value = self.parse_expanded_array(
                         py,
                         inner_len,
@@ -903,46 +887,45 @@ impl<'a> Parser<'a> {
         let line = self.lines[self.pos];
         let line_trimmed = line.trim();
 
-        if let Some(item_content) = line_trimmed.strip_prefix("- ") {
-            if let Some(colon_pos) = item_content.find(':') {
-                let key_part = &item_content[..colon_pos];
-                let value_part = item_content[colon_pos + 1..].trim();
+        if let Some(item_content) = line_trimmed.strip_prefix("- ")
+            && let Some(colon_pos) = item_content.find(':')
+        {
+            let key_part = &item_content[..colon_pos];
+            let value_part = item_content[colon_pos + 1..].trim();
 
-                let quote_end_pos = key_part.rfind('"');
+            let quote_end_pos = key_part.rfind('"');
 
-                let has_array_syntax = if let Some(quote_end) = quote_end_pos {
-                    key_part[quote_end + 1..].contains('[')
-                        && key_part[quote_end + 1..].contains(']')
+            let has_array_syntax = if let Some(quote_end) = quote_end_pos {
+                key_part[quote_end + 1..].contains('[') && key_part[quote_end + 1..].contains(']')
+            } else {
+                key_part.contains('[') && key_part.contains(']')
+            };
+
+            if has_array_syntax {
+                let value = self.parse_field_array(py, item_content, list_depth + 1)?;
+
+                let key_name = if let Some(quote_end) = quote_end_pos {
+                    &key_part[..quote_end + 1]
                 } else {
-                    key_part.contains('[') && key_part.contains(']')
+                    key_part.split('[').next().unwrap()
                 };
+                let key = self.parse_key(py, key_name)?;
+                dict.set_item(key, value)?;
+            } else {
+                let key = self.parse_key(py, key_part)?;
+                self.pos += 1;
 
-                if has_array_syntax {
-                    let value = self.parse_field_array(py, item_content, list_depth + 1)?;
-
-                    let key_name = if let Some(quote_end) = quote_end_pos {
-                        &key_part[..quote_end + 1]
-                    } else {
-                        key_part.split('[').next().unwrap()
-                    };
-                    let key = self.parse_key(py, key_name)?;
-                    dict.set_item(key, value)?;
-                } else {
-                    let key = self.parse_key(py, key_part)?;
-                    self.pos += 1;
-
-                    if value_part.is_empty() {
-                        if self.pos < self.lines.len() {
-                            let next_depth = self.get_depth(self.lines[self.pos]);
-                            if next_depth > list_depth + 1 {
-                                let value = self.parse_object(py, list_depth + 2)?;
-                                dict.set_item(key, value)?;
-                            }
+                if value_part.is_empty() {
+                    if self.pos < self.lines.len() {
+                        let next_depth = self.get_depth(self.lines[self.pos]);
+                        if next_depth > list_depth + 1 {
+                            let value = self.parse_object(py, list_depth + 2)?;
+                            dict.set_item(key, value)?;
                         }
-                    } else {
-                        let value = self.parse_primitive(py, value_part)?;
-                        dict.set_item(key, value)?;
                     }
+                } else {
+                    let value = self.parse_primitive(py, value_part)?;
+                    dict.set_item(key, value)?;
                 }
             }
         }
@@ -1022,11 +1005,7 @@ impl<'a> Parser<'a> {
             "true" => Ok(PyBool::new(py, true).to_owned().into()),
             "false" => Ok(PyBool::new(py, false).to_owned().into()),
             _ => {
-                let check_s = if trimmed.starts_with('-') {
-                    &trimmed[1..]
-                } else {
-                    trimmed
-                };
+                let check_s = trimmed.strip_prefix('-').unwrap_or(trimmed);
 
                 if check_s.len() > 1
                     && check_s.starts_with('0')
@@ -1037,6 +1016,9 @@ impl<'a> Parser<'a> {
 
                 if let Ok(i) = trimmed.parse::<i64>() {
                     Ok(PyInt::new(py, i).into())
+                } else if is_integer_literal(check_s) {
+                    // Outside i64 range: keep full precision as a Python int.
+                    Ok(py.get_type::<PyInt>().call1((trimmed,))?.unbind())
                 } else if let Ok(f) = trimmed.parse::<f64>() {
                     Ok(PyFloat::new(py, f).into())
                 } else {
@@ -1155,16 +1137,8 @@ impl<'a> Parser<'a> {
 
     fn get_depth(&self, line: &str) -> usize {
         let leading_spaces = line.len() - line.trim_start().len();
-        let indent_to_use = if let Some(explicit) = self.explicit_indent {
-            explicit
-        } else {
-            self.indent_size
-        };
-        if indent_to_use > 0 {
-            leading_spaces / indent_to_use
-        } else {
-            0
-        }
+        let indent_to_use = self.explicit_indent.unwrap_or(self.indent_size);
+        leading_spaces.checked_div(indent_to_use).unwrap_or(0)
     }
 
     fn get_indent_spaces(&self, line: &str) -> usize {

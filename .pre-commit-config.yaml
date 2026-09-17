@@ -10,14 +10,24 @@ repos:
       - id: mixed-line-ending
         args: [ --fix=lf ]
         exclude: "make.bat"
-  - repo: https://github.com/doublify/pre-commit-rust
-    rev: v1.0
+  # Run the local toolchain: the third-party Rust hook mirrors are stale.
+  - repo: local
     hooks:
-      - id: fmt
-      - id: cargo-check
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.0
+    rev: v0.16.8
     hooks:
       - id: ruff-format
       - id: ruff-check
-        args: [--fix, --select, I]
+        args: [--fix]

@@ -12,6 +12,8 @@ mkdocs:
 
 python:
   install:
-    - requirements: requirements-dev.txt
+    # Regenerate with:
+    #   uv export --only-group docs --no-hashes --no-emit-project -o docs/requirements.txt
+    - requirements: docs/requirements.txt
     - method: pip
       path: .

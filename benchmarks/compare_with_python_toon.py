@@ -1,15 +1,21 @@
+"""Compare toons against the pure-Python reference encoder.
+
+Requires the optional `python-toon` package:
+
+    uv run --no-sync pip install python-toon
+"""
+
 import difflib
 import pprint
+import sys
 import time
 
 import toons
 
 try:
     import toon
-except ImportError as e:
-    print(e)
-    print("Install it with: 'pip install python-toon'")
-    exit(1)
+except ImportError:
+    sys.exit("python-toon is not installed: pip install python-toon")
 
 
 DATA = {

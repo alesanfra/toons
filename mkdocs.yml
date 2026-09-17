@@ -41,6 +41,7 @@ nav:
     - Complex Examples: examples.md
   - Contributing:
     - Contributing: contributing.md
+    - Development: development.md
     - Testing Guide: testing-guide.md
   - API Reference:
     - API Reference: api-reference.md
@@ -79,4 +80,4 @@ extra:
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/toons/
 
-copyright: Copyright &copy; 2025 Alessio Sanfratello
+copyright: Copyright &copy; 2026 Alessio Sanfratello

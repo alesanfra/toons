@@ -6,6 +6,22 @@ import pytest
 import toons
 
 
+class TestModuleMetadata:
+    """Module-level constants."""
+
+    def test_version_is_exposed(self):
+        """__version__ reports the library version."""
+        assert toons.__version__.count(".") == 2
+
+    def test_toon_spec_version_is_exposed(self):
+        """__toon_spec__ reports the implemented specification version.
+
+        Bumping this means re-vendoring the conformance fixtures and updating
+        README.md, docs/index.md, and AGENTS.md.
+        """
+        assert toons.__toon_spec__ == "3.0"
+
+
 class TestSmokeLoads:
     """Minimal smoke test for loads() function."""
 
