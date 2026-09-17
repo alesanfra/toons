@@ -23,7 +23,7 @@ primitives:
   boolean_false: false
   null_value: null
 arrays:
-  empty[0]:
+  empty: []
   integers[5]: 1,2,3,4,5
   floats[3]: 1.1,2.2,3.3
   strings[3]: alpha,beta,gamma
@@ -62,7 +62,7 @@ edge_cases:
   empty_nested:
     level1:
       level2:
-        empty_array[0]:
+        empty_array: []
         empty_object:
   unicode_variants:
     emoji: 🎉🚀✨💻🐍

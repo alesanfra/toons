@@ -2,7 +2,7 @@
 name = "toons"
 version = "0.8.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "Python bindings for TOON (Token Oriented Object Notation)"
 repository = "https://github.com/alesanfra/toons"
 license = "Apache-2.0"

@@ -22,7 +22,8 @@ DECODE_FIXTURES_DIR = FIXTURES_DIR / "decode"
 
 def load_fixture_file(fixture_path: Path) -> dict[str, Any]:
     """Load a JSON fixture file."""
-    with open(fixture_path, "r") as f:
+    # The fixtures are UTF-8; Windows would otherwise decode them as cp1252.
+    with open(fixture_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -129,7 +130,11 @@ def test_integration_dump(
     tmp_path: Path,
 ):
     """Encode a fixture case with dump()."""
-    with open(tmp_path / "temp.toon", "w+t") as f:
+    # newline="" keeps a fixture's CRLF intact: Windows would otherwise
+    # translate every "\n" written in text mode into another "\r\n".
+    with open(
+        tmp_path / "temp.toon", "w+t", encoding="utf-8", newline=""
+    ) as f:
         if should_error:
             with pytest.raises(Exception):
                 toons.dump(input_data, f, **options)
@@ -179,7 +184,11 @@ def test_integration_load(
 ):
     """Decode a fixture case with load()."""
 
-    with open(tmp_path / "temp.toon", "w+t") as f:
+    # newline="" keeps a fixture's CRLF intact: Windows would otherwise
+    # translate every "\n" written in text mode into another "\r\n".
+    with open(
+        tmp_path / "temp.toon", "w+t", encoding="utf-8", newline=""
+    ) as f:
         f.write(input_toon)
         f.seek(0)
 

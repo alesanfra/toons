@@ -57,9 +57,17 @@ class TestRecursionLimits:
     def test_shared_reference_is_not_circular(self):
         """The same object used twice side by side is not a cycle."""
         shared = {"a": 1}
-        assert (
-            toons.dumps({"x": shared, "y": shared}) == "x:\n  a: 1\ny:\n  a: 1"
+        assert toons.dumps({"x": shared, "y": shared}) == (
+            "[2:]{a}:\n  x: 1\n  y: 1"
         )
+
+    def test_deeply_nested_uniform_columns(self):
+        """A deep uniform column is bounded during form detection too."""
+        value = {"x": 1}
+        for _ in range(1500):
+            value = {"g": value}
+        with pytest.raises(ValueError, match="Maximum nesting depth"):
+            toons.dumps({"a": [value, value]})
 
     def test_deeply_nested_structure(self):
         """Nesting beyond the encoder limit raises ValueError."""
@@ -86,23 +94,20 @@ class TestOptionValidation:
             f"1{delimiter}2"
         )
 
-    def test_invalid_key_folding(self):
-        """dumps() rejects unknown key_folding modes."""
-        with pytest.raises(ValueError, match="key_folding must be"):
-            toons.dumps({"a": {"b": 1}}, key_folding="maybe")
-
-    @pytest.mark.parametrize("indent", [0, 1])
-    def test_invalid_indent(self, indent):
+    @pytest.mark.parametrize("indent_size", [0, 1])
+    def test_invalid_indent_size(self, indent_size):
         """dumps() requires at least two spaces of indentation."""
-        with pytest.raises(ValueError, match="indent must be >= 2"):
-            toons.dumps({"a": {"b": 1}}, indent=indent)
+        with pytest.raises(ValueError, match="indent_size must be >= 2"):
+            toons.dumps({"a": {"b": 1}}, indent_size=indent_size)
 
-    def test_invalid_expand_paths(self):
-        """loads() rejects unknown expand_paths modes."""
-        with pytest.raises(ValueError, match="expand_paths must be"):
-            toons.loads("a.b: 1", expand_paths="maybe")
+    def test_indent_alias_must_agree_with_indent_size(self):
+        """Passing both spellings with different values is rejected."""
+        with pytest.raises(ValueError, match="disagree"):
+            toons.dumps({"a": {"b": 1}}, indent_size=2, indent=4)
+        with pytest.raises(ValueError, match="disagree"):
+            toons.loads("a: 1", indent_size=2, indent=4)
 
-    def test_invalid_decode_indent(self):
-        """loads() rejects an indent hint of zero."""
-        with pytest.raises(ValueError, match="indent must be >= 1"):
-            toons.loads("a: 1", indent=0)
+    def test_invalid_decode_indent_size(self):
+        """loads() rejects an indent size of zero."""
+        with pytest.raises(ValueError, match="indent_size must be >= 1"):
+            toons.loads("a: 1", indent_size=0)

@@ -7,7 +7,7 @@ How TOONS maps Python values to TOON and back.
 | Python | TOON | Notes |
 | --- | --- | --- |
 | `dict` | object | Keys must be strings; insertion order is preserved |
-| `list`, `tuple` | array | Inline, tabular, or expanded |
+| `list`, `tuple` | array | Inline, tabular, or list form |
 | `str` | string | Quoted only when needed |
 | `int` | integer | Plain decimal, any magnitude |
 | `float` | number | Plain decimal; `NaN` and infinities become `null` |
@@ -23,10 +23,10 @@ Decoding maps TOON back to `dict`, `list`, `str`, `int`, `float`, `bool`, and
 
 Strings are unquoted when that is unambiguous, quoted when it is not.
 
-A string is quoted when it is empty, has leading or trailing whitespace,
-looks like a number, equals `true`, `false`, or `null`, starts with `-`, or
-contains `:`, `"`, `\`, `[`, `]`, `{`, `}`, a newline, a tab, or the active
-delimiter.
+A string is quoted when it is empty, has a leading or trailing space or tab,
+looks like a number, equals `true`, `false`, or `null`, starts with `-` or
+`#`, or contains `:`, `"`, `\`, `[`, `]`, `{`, `}`, a control character, or
+the active delimiter.
 
 ```python
 import toons
@@ -135,7 +135,7 @@ print(toons.dumps({"tags": ["python", "rust", "toon"]}))
 # tags[3]: python,rust,toon
 
 print(toons.dumps({"items": []}))
-# items[0]:
+# items: []
 ```
 
 **Uniform object arrays use the tabular form**, which is where TOON saves the
@@ -158,7 +158,26 @@ print(toons.dumps(users))
 #   Bob,25,user
 ```
 
-**Everything else uses the expanded form**, one `- ` item per element:
+A column whose values are uniform objects becomes a nested field group, so
+the rows stay flat:
+
+```python
+import toons
+
+orders = {
+    "orders": [
+        {"id": 1, "customer": {"name": "Ada", "country": "DK"}},
+        {"id": 2, "customer": {"name": "Bob", "country": "UK"}},
+    ]
+}
+
+print(toons.dumps(orders))
+# orders[2]{id,customer{name,country}}:
+#   1,Ada,DK
+#   2,Bob,UK
+```
+
+**Everything else uses the list form**, one `- ` item per element:
 
 ```python
 import toons
@@ -191,6 +210,26 @@ print(toons.dumps([{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]))
 # [2]{name,age}:
 #   Alice,30
 #   Bob,25
+```
+
+## Objects of uniform objects
+
+An object with two or more entries whose values share one uniform object
+shape uses the keyed tabular form, which declares the fields once and puts
+each entry key in front of its row:
+
+```python
+import toons
+
+print(toons.dumps({"a": {"x": 1, "y": 2}, "b": {"x": 3, "y": 4}}))
+# [2:]{x,y}:
+#   a: 1,2
+#   b: 3,4
+
+print(toons.dumps({"m": {"a": {"x": 1}, "b": {"x": 2}}}))
+# m[2:]{x}:
+#   a: 1
+#   b: 2
 ```
 
 ## Dates and times
@@ -270,6 +309,42 @@ original = {
 
 assert toons.loads(toons.dumps(original)) == original
 ```
+
+## Documented behavior
+
+The specification requires implementations to document a few choices
+(Sections 2, 4, 12, and 15). TOONS makes them as follows.
+
+**Numbers out of the numeric domain.** Integers of any magnitude decode as
+exact Python ints. A decimal or exponent token whose magnitude exceeds the
+double-precision range is rejected in strict mode and decodes as
+`float("inf")` when `strict=False`; a magnitude below it decodes as `0.0`.
+
+```python
+import toons
+
+try:
+    toons.loads("a: 1e400")
+except toons.ToonDecodeError as exc:
+    print(exc)
+# TOON parse error at line 1: Number 1e400 is out of range
+```
+
+**Unpaired surrogates.** A `str` holding an unpaired surrogate has no TOON
+representation and raises `ValueError` instead of being replaced with
+U+FFFD.
+
+**Tabs in indentation.** Tabs are an error in strict mode. With
+`strict=False` a leading tab counts as one indentation level, whatever
+`indent_size` is.
+
+**Key order and reserved keys.** Object key order is preserved, except that
+tabular and keyed tabular rows decode in the header's field order. No key
+is special: `__proto__`, `constructor`, and `prototype` are ordinary dict
+keys.
+
+**Nesting.** Encoding or decoding more than 1000 nested containers raises
+an error rather than exhausting the stack.
 
 ## See also
 

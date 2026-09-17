@@ -1,6 +1,15 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 
+/// Spaces per indentation level when the caller does not pass one
+/// (Section 13 default).
+const DEFAULT_INDENT_SIZE: usize = 2;
+
+/// Maximum container nesting accepted by the decoder, the documented depth
+/// limit Section 15 allows. The parser recurses per level, so without it a
+/// deep document overflows the stack and crashes the interpreter.
+const MAX_NESTING: usize = 1000;
+
 /// Build a `ToonDecodeError` with `.line` and `.source` attributes set
 /// (either may be `None` when the offending location is unknown).
 fn make_decode_error(
@@ -16,217 +25,244 @@ fn make_decode_error(
     err
 }
 
-/// Deserialize a TOON format string to a Python object.
+/// Deserialize a TOON document into a Python object.
 ///
 /// # Arguments
 ///
 /// * `py` - Python interpreter handle
-/// * `input` - TOON format string
-/// * `strict` - Enable strict mode validation
-/// * `expand_paths` - Path expansion mode ("off" | "safe" | "always")
-/// * `indent` - Expected indentation size (None for auto-detect)
-///
-/// # Returns
-///
-/// Python object (dict, list, or primitive)
+/// * `input` - TOON text
+/// * `strict` - Enable the Section 14 checks
+/// * `indent_size` - Spaces per indentation level (None for the default 2)
 pub fn deserialize(
     py: Python,
     input: &str,
     strict: bool,
-    expand_paths: &str,
-    indent: Option<usize>,
+    indent_size: Option<usize>,
 ) -> PyResult<Py<PyAny>> {
-    let mut parser = Parser::new(input, strict, expand_paths, indent);
+    let mut parser = Parser::new(input, strict, indent_size);
     parser.parse(py)
 }
 
-/// Report whether a token is a plain sequence of digits.
-fn is_integer_literal(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+/// One field entry of a header's field list (Section 1.4). A group carries
+/// its own nested field list and materializes a nested object per row.
+enum Field {
+    Leaf(String),
+    Group(String, Vec<Field>),
 }
 
-/// Report whether a path segment matches `[A-Za-z_][A-Za-z0-9_.]*`, the
-/// only shape that path expansion accepts.
-fn is_valid_identifier_segment(s: &str) -> bool {
-    let mut chars = s.chars();
-
-    match chars.next() {
-        Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
-        _ => return false,
-    }
-
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
-}
-
-/// Reject a key whose existing value has an incompatible shape, which would
-/// otherwise make path expansion lossy. Only enforced in strict mode.
-pub fn check_key_conflict(
-    target: &Bound<'_, PyDict>,
-    key: &str,
-    new_value: &Bound<'_, PyAny>,
-    strict: bool,
-) -> PyResult<()> {
-    if !strict {
-        return Ok(());
-    }
-
-    if let Some(existing) = target.get_item(key)? {
-        let existing_is_dict = existing.cast::<PyDict>().is_ok();
-        let new_is_dict = new_value.cast::<PyDict>().is_ok();
-        let existing_is_list = existing.cast::<PyList>().is_ok();
-        let new_is_list = new_value.cast::<PyList>().is_ok();
-
-        if (existing_is_dict && !new_is_dict)
-            || (!existing_is_dict && new_is_dict)
-            || (existing_is_list && !new_is_list)
-            || (!existing_is_list && new_is_list)
-        {
-            return Err(make_decode_error(
-                target.py(),
-                format!("TOON parse error: Path expansion conflict at key '{}'", key),
-                None,
-                None,
-            ));
+impl Field {
+    fn name(&self) -> &str {
+        match self {
+            Field::Leaf(name) => name,
+            Field::Group(name, _) => name,
         }
     }
 
-    Ok(())
+    /// Number of cells this entry consumes from a row.
+    fn leaf_count(&self) -> usize {
+        match self {
+            Field::Leaf(_) => 1,
+            Field::Group(_, children) => children.iter().map(Field::leaf_count).sum(),
+        }
+    }
 }
 
-/// Split a dotted key into path segments, or return `None` when the key is
-/// not expandable.
-pub fn split_dotted_key(key: &str) -> Option<Vec<&str>> {
-    if !key.contains('.') {
+fn leaf_count(fields: &[Field]) -> usize {
+    fields.iter().map(Field::leaf_count).sum()
+}
+
+/// A parsed array or keyed header (Section 6).
+struct Header {
+    key: Option<String>,
+    length: usize,
+    keyed: bool,
+    delimiter: char,
+    fields: Option<Vec<Field>>,
+    /// Content after the header's colon, trimmed of spaces.
+    rest: String,
+}
+
+/// A source line after comment removal, with its indentation measured.
+struct Line<'a> {
+    raw: &'a str,
+    /// 1-based number in the original document.
+    lineno: usize,
+    /// Line content without indentation or trailing spaces.
+    content: &'a str,
+    spaces: usize,
+    tabs: usize,
+}
+
+impl Line<'_> {
+    fn is_blank(&self) -> bool {
+        self.content.is_empty()
+    }
+}
+
+/// Scan `s` for the first occurrence of `target` outside a quoted token.
+fn find_unquoted(s: &str, target: char) -> Option<usize> {
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for (i, ch) in s.char_indices() {
+        if in_quotes {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_quotes = false;
+            }
+            continue;
+        }
+
+        if ch == '"' {
+            in_quotes = true;
+        } else if ch == target {
+            return Some(i);
+        }
+    }
+
+    None
+}
+
+/// Index of the closing quote of the quoted token starting at byte 0.
+fn quoted_token_end(s: &str) -> Option<usize> {
+    let mut chars = s.char_indices();
+    if chars.next().map(|(_, ch)| ch) != Some('"') {
         return None;
     }
 
-    let segments: Vec<&str> = key.split('.').collect();
-
-    for segment in &segments {
-        if !is_valid_identifier_segment(segment) {
-            return None;
+    let mut escaped = false;
+    for (i, ch) in chars {
+        if escaped {
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Some(i);
         }
     }
 
-    Some(segments)
+    None
 }
 
-/// Merge a value into `target` at the given path, creating intermediate
-/// objects. Strict mode rejects a type conflict; otherwise the last write
-/// wins.
-pub fn deep_merge_path(
-    py: Python,
-    target: &Bound<'_, PyDict>,
-    path_segments: &[&str],
-    value: Py<PyAny>,
-    strict: bool,
-) -> PyResult<()> {
-    if path_segments.is_empty() {
-        return Ok(());
+/// Trim spaces (U+0020) only: any other whitespace is part of the token
+/// (Section 12).
+fn trim_spaces(s: &str) -> &str {
+    s.trim_matches(' ')
+}
+
+/// Report whether a token decodes as a number under the Section 4 grammar.
+fn is_number_token(s: &str) -> bool {
+    let body = s.strip_prefix('-').unwrap_or(s);
+    let (int_part, rest) = split_digits(body);
+
+    if int_part.is_empty() || (int_part.len() > 1 && int_part.starts_with('0')) {
+        return false;
     }
 
-    if path_segments.len() == 1 {
-        let key = path_segments[0];
-
-        if strict && target.contains(key)? {
-            let existing = target.get_item(key)?;
-            if let Some(existing_val) = existing {
-                let existing_is_dict = existing_val.cast::<PyDict>().is_ok();
-                let new_is_dict = value.bind(py).cast::<PyDict>().is_ok();
-                let existing_is_list = existing_val.cast::<PyList>().is_ok();
-                let new_is_list = value.bind(py).cast::<PyList>().is_ok();
-
-                if (existing_is_dict && !new_is_dict)
-                    || (!existing_is_dict && new_is_dict)
-                    || (existing_is_list && !new_is_list)
-                    || (!existing_is_list && new_is_list)
-                {
-                    return Err(make_decode_error(
-                        py,
-                        format!("TOON parse error: Path expansion conflict at key '{}'", key),
-                        None,
-                        None,
-                    ));
-                }
+    let rest = match rest.strip_prefix('.') {
+        Some(after_dot) => {
+            let (frac, rest) = split_digits(after_dot);
+            if frac.is_empty() {
+                return false;
             }
+            rest
         }
-
-        target.set_item(key, value)?;
-        return Ok(());
-    }
-
-    let first_segment = path_segments[0];
-    let remaining_segments = &path_segments[1..];
-
-    let next_obj = if let Some(existing) = target.get_item(first_segment)? {
-        if let Ok(dict) = existing.cast::<PyDict>() {
-            dict.clone()
-        } else {
-            if strict {
-                return Err(make_decode_error(
-                    py,
-                    format!(
-                        "TOON parse error: Path expansion conflict at key '{}'",
-                        first_segment
-                    ),
-                    None,
-                    None,
-                ));
-            }
-            let new_dict = PyDict::new(py);
-            target.set_item(first_segment, &new_dict)?;
-            new_dict
-        }
-    } else {
-        let new_dict = PyDict::new(py);
-        target.set_item(first_segment, &new_dict)?;
-        new_dict
+        None => rest,
     };
 
-    deep_merge_path(py, &next_obj, remaining_segments, value, strict)
+    let rest = match rest.strip_prefix(['e', 'E']) {
+        Some(after_e) => {
+            let after_sign = after_e.strip_prefix(['+', '-']).unwrap_or(after_e);
+            let (exp, rest) = split_digits(after_sign);
+            if exp.is_empty() {
+                return false;
+            }
+            rest
+        }
+        None => rest,
+    };
+
+    rest.is_empty()
+}
+
+fn split_digits(s: &str) -> (&str, &str) {
+    let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    (&s[..end], &s[end..])
+}
+
+/// Report whether a bracket length token is a canonical non-negative integer.
+fn is_length_token(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()) && (s.len() == 1 || !s.starts_with('0'))
 }
 
 pub struct Parser<'a> {
-    lines: Vec<&'a str>,
+    lines: Vec<Line<'a>>,
     pos: usize,
     indent_size: usize,
-    explicit_indent: Option<usize>,
     strict: bool,
-    expand_paths: &'a str,
+    /// Number of containers currently open, bounded by `MAX_NESTING`.
+    nesting: usize,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(
-        input: &'a str,
-        strict: bool,
-        expand_paths: &'a str,
-        explicit_indent: Option<usize>,
-    ) -> Self {
-        let lines: Vec<&str> = input.lines().collect();
+    pub fn new(input: &'a str, strict: bool, indent_size: Option<usize>) -> Self {
+        // A leading byte-order mark is not content (Section 12).
+        let input = input.strip_prefix('\u{feff}').unwrap_or(input);
+        let mut lines = Vec::new();
+
+        for (index, raw_line) in input.split('\n').enumerate() {
+            // A trailing CR belongs to the line terminator, trailing spaces
+            // are not content (Section 12).
+            let raw = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+            let body = raw.trim_end_matches(' ');
+
+            let indent_len = body
+                .find(|c: char| c != ' ' && c != '\t')
+                .unwrap_or(body.len());
+            let indent = &body[..indent_len];
+            let content = &body[indent_len..];
+
+            // Comment lines are removed before every other rule
+            // (Section 5.1); only spaces may precede the '#'.
+            if content.starts_with('#') && !indent.contains('\t') {
+                continue;
+            }
+
+            lines.push(Line {
+                raw,
+                lineno: index + 1,
+                content,
+                spaces: indent.matches(' ').count(),
+                tabs: indent.matches('\t').count(),
+            });
+        }
+
         Parser {
             lines,
             pos: 0,
-            indent_size: 0,
-            explicit_indent,
+            indent_size: indent_size.unwrap_or(DEFAULT_INDENT_SIZE),
             strict,
-            expand_paths,
+            nesting: 0,
         }
     }
 
-    /// Build a `ToonDecodeError` with structured line context from `self.pos`.
+    /// Build a `ToonDecodeError` with line context from `self.pos`.
     fn err_here(&self, py: Python, msg: impl Into<String>) -> PyErr {
         self.err_at(py, self.pos, msg)
     }
 
-    /// Build a `ToonDecodeError` from an explicit line index, populating
-    /// `.line` (1-based) and `.source` (raw line including indentation).
-    /// Both are `None` for an empty input.
+    /// Build a `ToonDecodeError` from a line index, populating `.line`
+    /// (1-based) and `.source` (the raw line). Both are `None` for an
+    /// empty input.
     fn err_at(&self, py: Python, line_idx: usize, msg: impl Into<String>) -> PyErr {
         let (line_num, source) = if self.lines.is_empty() {
             (None, None)
         } else {
-            let clamped = line_idx.min(self.lines.len() - 1);
-            (Some(clamped + 1), Some(self.lines[clamped]))
+            let line = &self.lines[line_idx.min(self.lines.len() - 1)];
+            (Some(line.lineno), Some(line.raw))
         };
         let formatted = match line_num {
             Some(n) => format!("TOON parse error at line {}: {}", n, msg.into()),
@@ -235,472 +271,428 @@ impl<'a> Parser<'a> {
         make_decode_error(py, formatted, line_num, source)
     }
 
-    fn detect_indent_size(&mut self) {
-        // Auto-detect indent size by finding first indented line
-        for line in &self.lines {
-            if !line.trim().is_empty() && line.starts_with(' ') {
-                let spaces = line.chars().take_while(|&c| c == ' ').count();
-                if spaces > 0 {
-                    self.indent_size = spaces;
-                    return;
-                }
-            }
+    /// Open a container, keeping the parser off the stack limit.
+    /// Paired with [`Parser::leave`].
+    fn enter(&mut self, py: Python) -> PyResult<()> {
+        self.nesting += 1;
+        if self.nesting > MAX_NESTING {
+            return Err(self.err_here(
+                py,
+                format!("Maximum nesting depth of {} exceeded", MAX_NESTING),
+            ));
         }
-        // Default to 2 if no indented lines found
-        self.indent_size = 2;
+        Ok(())
     }
 
-    fn validate_indentation(&self, py: Python, line: &str) -> PyResult<()> {
+    fn leave(&mut self) {
+        self.nesting -= 1;
+    }
+
+    fn depth_of(&self, line: &Line) -> usize {
+        line.spaces / self.indent_size + line.tabs
+    }
+
+    fn depth_at(&self, idx: usize) -> usize {
+        self.depth_of(&self.lines[idx])
+    }
+
+    /// Enforce the Section 12 indentation invariants over every content line.
+    fn validate_indentation(&self, py: Python) -> PyResult<()> {
         if !self.strict {
             return Ok(());
         }
 
-        // Skip validation for lines that are only whitespace (empty lines)
-        if line.trim().is_empty() {
-            return Ok(());
-        }
-
-        let indent_len = line.len() - line.trim_start().len();
-        let indent_part = &line[..indent_len];
-
-        if indent_part.contains('\t') {
-            return Err(self.err_here(py, "Tabs are not allowed in indentation"));
-        }
-
-        // Use explicit_indent if provided, otherwise use auto-detected indent_size
-        let check_indent = if let Some(explicit) = self.explicit_indent {
-            explicit
-        } else {
-            self.indent_size
-        };
-
-        if check_indent > 0 && indent_len % check_indent != 0 {
-            return Err(self.err_here(
-                py,
-                format!(
-                    "Indentation {} is not a multiple of indent size {}",
-                    indent_len, check_indent
-                ),
-            ));
+        for (idx, line) in self.lines.iter().enumerate() {
+            if line.is_blank() {
+                continue;
+            }
+            if line.tabs > 0 {
+                return Err(self.err_at(py, idx, "Tabs are not allowed in indentation"));
+            }
+            if line.spaces % self.indent_size != 0 {
+                return Err(self.err_at(
+                    py,
+                    idx,
+                    format!(
+                        "Indentation {} is not a multiple of indent size {}",
+                        line.spaces, self.indent_size
+                    ),
+                ));
+            }
         }
 
         Ok(())
     }
 
-    pub fn parse(&mut self, py: Python) -> PyResult<Py<PyAny>> {
-        self.detect_indent_size();
+    /// Index of the next line that is not blank, or `self.lines.len()`.
+    fn next_content_line(&self, from: usize) -> usize {
+        let mut idx = from;
+        while idx < self.lines.len() && self.lines[idx].is_blank() {
+            idx += 1;
+        }
+        idx
+    }
 
-        // Root form detection per TOON Spec v3.0 Section 5
+    /// Handle a blank line met while collecting a scope's content.
+    ///
+    /// Returns `true` when the scope continues past the blank run. A blank
+    /// inside a header span is a strict-mode error (Section 12); in
+    /// non-strict mode it is skipped and never counted. Blanks that only
+    /// trail the scope are left for the enclosing scope to consume.
+    fn blank_inside_scope(
+        &mut self,
+        py: Python,
+        content_depth: usize,
+        seen_content: bool,
+    ) -> PyResult<bool> {
+        let next = self.next_content_line(self.pos);
+        let continues = next < self.lines.len() && self.depth_at(next) >= content_depth;
 
-        // Skip empty lines at start
-        while self.pos < self.lines.len() && self.lines[self.pos].trim().is_empty() {
-            self.pos += 1;
+        if !continues {
+            return Ok(false);
         }
 
+        if self.strict && seen_content {
+            return Err(self.err_here(py, "Blank line inside array"));
+        }
+
+        self.pos = next;
+        Ok(true)
+    }
+
+    pub fn parse(&mut self, py: Python) -> PyResult<Py<PyAny>> {
+        self.validate_indentation(py)?;
+
+        self.pos = self.next_content_line(0);
         if self.pos >= self.lines.len() {
-            // Empty document → empty object per TOON v3.0 Section 5
+            // An empty document decodes to an empty object (Section 5).
             return Ok(PyDict::new(py).into());
         }
 
-        let first_line = self.lines[self.pos];
-        self.validate_indentation(py, first_line)?;
-        let first_line_trimmed = first_line.trim();
+        let content = self.lines[self.pos].content;
+        let root_form = content.starts_with('[') && self.depth_at(self.pos) == 0;
 
-        // A root array header is `[N]:` or `[N]{fields}:` at column zero.
-        if first_line_trimmed.starts_with('[')
-            && first_line_trimmed.contains(':')
-            && first_line == first_line_trimmed
+        if root_form && content == "[]" {
+            self.pos += 1;
+            return self.finish_root(py, PyList::empty(py).into());
+        }
+
+        // A keyless header at depth 0 opens a root array or a keyed tabular
+        // root object (Section 5).
+        if root_form
+            && let Ok(header) = self.try_parse_header(content)
+            && header.key.is_none()
         {
-            return self.parse_root_array(py);
+            let value = self.parse_header_value(py, &header, 0)?;
+            return self.finish_root(py, value);
         }
 
-        // A single line without an unquoted colon is a bare primitive.
-        if self.lines.len() == 1 && self.find_key_value_colon(first_line_trimmed).is_none() {
-            return self.parse_primitive(py, first_line_trimmed);
+        // A lone line that is neither a header nor a key-value line is a
+        // root primitive (Section 5).
+        if self.next_content_line(self.pos + 1) >= self.lines.len()
+            && find_unquoted(content, ':').is_none()
+            && !content.starts_with('[')
+        {
+            return self.parse_primitive(py, content);
         }
 
-        self.parse_object(py, 0)
+        self.parse_object(py, 0, false)
     }
 
-    fn parse_root_array(&mut self, py: Python) -> PyResult<Py<PyAny>> {
-        let header_idx = self.pos;
-        let header = self.lines[self.pos];
-        let (length, delimiter, fields) = self.parse_header(py, header, header_idx)?;
-        self.pos += 1;
-
-        if let Some(field_names) = fields {
-            // Tabular array
-            self.parse_tabular_array(py, length, delimiter, &field_names, 1, header_idx)
-        } else {
-            // Check if inline or expanded
-            let header_trimmed = header.trim();
-            if let Some(colon_pos) = header_trimmed.find("]:") {
-                let after_colon = &header_trimmed[colon_pos + 2..].trim();
-                if !after_colon.is_empty() {
-                    // Inline primitive array (values on same line)
-                    self.parse_inline_array(py, after_colon, delimiter, length, header_idx)
-                } else {
-                    // Expanded list array (values on following lines)
-                    self.parse_expanded_array(py, length, 1, header_idx)
-                }
-            } else {
-                // Malformed
-                Err(self.err_at(py, header_idx, "Invalid array header"))
-            }
+    /// Reject content after a completed root array or keyed root object
+    /// (Section 5); non-strict mode ignores it.
+    fn finish_root(&mut self, py: Python, value: Py<PyAny>) -> PyResult<Py<PyAny>> {
+        let next = self.next_content_line(self.pos);
+        if next < self.lines.len() && self.strict {
+            return Err(self.err_at(py, next, "Trailing content after the root value"));
         }
+        Ok(value)
     }
 
-    pub fn parse_object(&mut self, py: Python, depth: usize) -> PyResult<Py<PyAny>> {
+    /// Parse an object scope whose fields sit at `depth`.
+    ///
+    /// `in_span` marks a scope that lies inside a header span, where blank
+    /// lines are errors in strict mode (Section 12).
+    fn parse_object(&mut self, py: Python, depth: usize, in_span: bool) -> PyResult<Py<PyAny>> {
+        self.enter(py)?;
+        let result = self.parse_object_body(py, depth, in_span);
+        self.leave();
+        result
+    }
+
+    fn parse_object_body(
+        &mut self,
+        py: Python,
+        depth: usize,
+        in_span: bool,
+    ) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
+        let mut seen_field = false;
 
         while self.pos < self.lines.len() {
-            let line = self.lines[self.pos];
-            self.validate_indentation(py, line)?;
-
-            let line_trimmed = line.trim();
-            if line_trimmed.is_empty() {
-                // Blank line - check if there are more fields at this depth
-                let mut lookahead = self.pos + 1;
-                while lookahead < self.lines.len() && self.lines[lookahead].trim().is_empty() {
-                    lookahead += 1;
-                }
-
-                if lookahead < self.lines.len() {
-                    let next_depth = self.get_depth(self.lines[lookahead]);
-                    if next_depth >= depth {
-                        // More fields at this depth, skip blank line and continue
-                        self.pos += 1;
+            if self.lines[self.pos].is_blank() {
+                if in_span {
+                    if self.blank_inside_scope(py, depth, seen_field)? {
                         continue;
                     }
+                    break;
                 }
-
-                // No more fields at this depth, end object
-                break;
+                self.pos += 1;
+                continue;
             }
 
-            let line_depth = self.get_depth(line);
-
+            let line_depth = self.depth_at(self.pos);
             if line_depth < depth {
-                // End of this object
                 break;
             }
 
             if line_depth > depth {
-                // Shouldn't happen at start, skip
+                // A line deeper than the scope's content depth belongs to no
+                // scope (Section 8); a bare token there is an error in every
+                // mode (Section 5.2).
+                let content = self.lines[self.pos].content;
+                if find_unquoted(content, ':').is_none() {
+                    return Err(self.err_here(py, format!("Unexpected line: {}", content)));
+                }
+                if self.strict {
+                    return Err(self.err_here(py, "Line is indented deeper than its scope"));
+                }
                 self.pos += 1;
                 continue;
             }
 
-            // Parse key-value line
-            if let Some(colon_pos) = self.find_key_value_colon(line_trimmed) {
-                let key_part = &line_trimmed[..colon_pos];
-                let value_part = line_trimmed[colon_pos + 1..].trim();
-
-                // Check if this is an array syntax like: key[N] or "key"[N] or key[N]{fields}
-                let first_quote_pos = key_part.find('"');
-                let first_bracket_pos = key_part.find('[');
-
-                let has_array_syntax = match (first_quote_pos, first_bracket_pos) {
-                    (None, Some(_)) => key_part.contains(']'),
-                    (Some(q), Some(b)) if b < q => key_part.contains(']'),
-                    (Some(_q), Some(_b)) => {
-                        if let Some(last_quote) = key_part.rfind('"') {
-                            key_part[last_quote + 1..].contains('[')
-                                && key_part[last_quote + 1..].contains(']')
-                        } else {
-                            false
-                        }
-                    }
-                    _ => false,
-                };
-
-                // Check if key contains array header (e.g., key[N] or key[N]{fields})
-                if has_array_syntax {
-                    // Array as object value
-                    let value = self.parse_field_array(py, line_trimmed, depth)?;
-
-                    // Extract key name before the array bracket
-                    let key_name = if let Some(after_quote) = key_part.strip_prefix('"') {
-                        // Quoted key: the name ends at the closing quote.
-                        if let Some(close_quote) = after_quote.find('"').map(|p| p + 1) {
-                            &key_part[..close_quote + 1]
-                        } else {
-                            key_part.split('[').next().unwrap()
-                        }
-                    } else if let Some(first_bracket) = key_part.find('[') {
-                        &key_part[..first_bracket]
-                    } else {
-                        key_part
-                    };
-
-                    let (should_expand, _) = self.should_expand_key(key_name);
-                    let key = self.parse_key(py, key_name)?;
-                    self.insert_key(py, &dict, &key, should_expand, value)?;
-                    continue;
-                }
-
-                let (should_expand, _) = self.should_expand_key(key_part);
-                let parsed_key = self.parse_key(py, key_part)?;
-                self.pos += 1;
-
-                if value_part.is_empty() {
-                    // Nested object or empty
-                    let value = if self.pos < self.lines.len() {
-                        let next_line = self.lines[self.pos];
-                        let next_depth = self.get_depth(next_line);
-
-                        // In non-strict mode, use actual indentation comparison
-                        let is_nested = if !self.strict && self.explicit_indent.is_none() {
-                            let current_indent = self.get_indent_spaces(line);
-                            let next_indent = self.get_indent_spaces(next_line);
-                            let next_trimmed = next_line.trim();
-                            next_indent > current_indent
-                                && !next_trimmed.is_empty()
-                                && !next_trimmed.starts_with('-')
-                        } else {
-                            next_depth > depth
-                        };
-
-                        if is_nested {
-                            // Nested object - in non-strict mode with auto-detected indent,
-                            // use the actual depth of the next line instead of depth+1
-                            let nested_depth = if !self.strict && self.explicit_indent.is_none() {
-                                next_depth
-                            } else {
-                                depth + 1
-                            };
-                            self.parse_object(py, nested_depth)?
-                        } else {
-                            // Empty object
-                            PyDict::new(py).into()
-                        }
-                    } else {
-                        // Empty object at end
-                        PyDict::new(py).into()
-                    };
-
-                    self.insert_key(py, &dict, &parsed_key, should_expand, value)?;
-                } else {
-                    // Primitive value
-                    let value = self.parse_primitive(py, value_part)?;
-
-                    self.insert_key(py, &dict, &parsed_key, should_expand, value)?;
-                }
-            } else {
-                // Missing colon error
-                return Err(self.err_here(py, format!("Missing colon in line: {}", line_trimmed)));
-            }
+            let content = self.lines[self.pos].content;
+            self.parse_object_field(py, &dict, content, depth, in_span)?;
+            seen_field = true;
         }
 
         Ok(dict.into())
     }
 
-    /// Store `value` under `key`, expanding a dotted key into nested objects
-    /// when path expansion applies to it.
-    fn insert_key(
+    /// Parse the field on the current line into `dict`, together with any
+    /// scope it opens.
+    fn parse_object_field(
+        &mut self,
+        py: Python,
+        dict: &Bound<'_, PyDict>,
+        content: &str,
+        depth: usize,
+        in_span: bool,
+    ) -> PyResult<()> {
+        let line_idx = self.pos;
+
+        let colon = find_unquoted(content, ':');
+        let bracket = find_unquoted(content, '[');
+
+        // A line whose first unquoted colon precedes its first unquoted '['
+        // is a key-value line, never a header (Section 5.2).
+        let header_shaped = match (bracket, colon) {
+            (Some(b), Some(c)) => b < c,
+            (Some(_), None) => true,
+            _ => false,
+        };
+
+        if header_shaped {
+            match self.try_parse_header(content) {
+                Ok(header) => {
+                    if header.key.is_none() {
+                        if self.strict {
+                            return Err(self.err_at(
+                                py,
+                                line_idx,
+                                "Keyless array header is valid only at the document root",
+                            ));
+                        }
+                    } else {
+                        let key = header.key.clone().unwrap();
+                        let value = self.parse_header_value(py, &header, depth)?;
+                        return self.insert(py, dict, &key, value, line_idx);
+                    }
+                }
+                Err(msg) => {
+                    if self.strict {
+                        return Err(self.err_at(py, line_idx, msg));
+                    }
+                }
+            }
+        }
+
+        // Key-value line, including the non-strict fall-through for a
+        // malformed header (Section 6).
+        let Some(colon) = colon else {
+            return Err(self.err_at(py, line_idx, format!("Unexpected line: {}", content)));
+        };
+
+        let key = self.parse_key(py, trim_spaces(&content[..colon]), line_idx)?;
+        let value_token = trim_spaces(&content[colon + 1..]);
+        self.pos += 1;
+
+        let value = if value_token.is_empty() {
+            self.parse_nested_object(py, depth, in_span)?
+        } else if value_token == "[]" {
+            PyList::empty(py).into()
+        } else {
+            self.parse_primitive_at(py, value_token, line_idx)?
+        };
+
+        self.insert(py, dict, &key, value, line_idx)
+    }
+
+    /// Parse the object opened by a bare `key:` line at `depth`.
+    fn parse_nested_object(
+        &mut self,
+        py: Python,
+        depth: usize,
+        in_span: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let next = self.next_content_line(self.pos);
+        if next >= self.lines.len() {
+            return Ok(PyDict::new(py).into());
+        }
+
+        let next_depth = self.depth_at(next);
+        if next_depth <= depth {
+            return Ok(PyDict::new(py).into());
+        }
+
+        if next_depth > depth + 1 {
+            if self.strict {
+                return Err(self.err_at(py, next, "Indentation jumps more than one level"));
+            }
+            // Non-strict mode takes the line's own depth as the scope's.
+            return self.parse_object(py, next_depth, in_span);
+        }
+
+        self.parse_object(py, depth + 1, in_span)
+    }
+
+    /// Store `value` under `key`, rejecting a duplicate sibling key in
+    /// strict mode and applying last-write-wins otherwise (Section 14.3).
+    fn insert(
         &self,
         py: Python,
         dict: &Bound<'_, PyDict>,
         key: &str,
-        should_expand: bool,
         value: Py<PyAny>,
+        line_idx: usize,
     ) -> PyResult<()> {
-        if should_expand {
-            if let Some(segments) = split_dotted_key(key) {
-                return deep_merge_path(py, dict, &segments, value, self.strict);
-            }
+        if self.strict && dict.contains(key)? {
+            return Err(self.err_at(py, line_idx, format!("Duplicate key '{}'", key)));
         }
-
-        check_key_conflict(dict, key, value.bind(py), self.strict)?;
         dict.set_item(key, value)
     }
 
-    pub fn parse_field_array(
+    /// Decode the value declared by `header`, whose line sits at `depth`.
+    fn parse_header_value(
         &mut self,
         py: Python,
-        header_line: &str,
+        header: &Header,
         depth: usize,
     ) -> PyResult<Py<PyAny>> {
         let header_idx = self.pos;
-        let (length, delimiter, fields) = self.parse_header(py, header_line, header_idx)?;
         self.pos += 1;
 
-        if let Some(field_names) = fields {
-            self.parse_tabular_array(py, length, delimiter, &field_names, depth + 1, header_idx)
-        } else {
-            let header_trimmed = header_line.trim();
-            if let Some(bracket_end) = header_trimmed.find("]:") {
-                let after_colon = header_trimmed[bracket_end + 2..].trim();
-                if !after_colon.is_empty() {
-                    self.parse_inline_array(py, after_colon, delimiter, length, header_idx)
-                } else {
-                    self.parse_expanded_array(py, length, depth + 1, header_idx)
-                }
-            } else {
-                Err(self.err_at(py, header_idx, "Invalid array header"))
+        if let Some(fields) = &header.fields {
+            if header.keyed {
+                return self.parse_keyed_entries(py, header, fields, depth + 1, header_idx);
             }
+            return self.parse_tabular_rows(py, header, fields, depth + 1, header_idx);
         }
+
+        if !header.rest.is_empty() {
+            return self.parse_inline_array(py, &header.rest, header, header_idx);
+        }
+
+        self.parse_list_items(py, header, depth + 1, header_idx)
     }
 
-    pub fn parse_header(
+    /// Decode `key[N]: v1,v2` (Section 9.1).
+    fn parse_inline_array(
         &self,
         py: Python,
-        header: &str,
-        header_line_idx: usize,
-    ) -> PyResult<(usize, char, Option<Vec<String>>)> {
-        let trimmed = header.trim();
+        values: &str,
+        header: &Header,
+        header_idx: usize,
+    ) -> PyResult<Py<PyAny>> {
+        let tokens = split_cells(values, header.delimiter);
 
-        let bracket_start = self
-            .find_array_bracket_start(trimmed)
-            .ok_or_else(|| self.err_at(py, header_line_idx, "Invalid array header: missing '['"))?;
-
-        let bracket_end = trimmed[bracket_start..]
-            .find(']')
-            .map(|pos| pos + bracket_start)
-            .ok_or_else(|| self.err_at(py, header_line_idx, "Invalid array header: missing ']'"))?;
-
-        let bracket_content = &trimmed[bracket_start + 1..bracket_end];
-
-        if bracket_content.trim_start().starts_with('#') {
+        if self.strict && tokens.len() != header.length {
             return Err(self.err_at(
                 py,
-                header_line_idx,
-                "[#N] headers were removed in v2.0; use [N]",
+                header_idx,
+                format!(
+                    "Array declared length {} but found {} values",
+                    header.length,
+                    tokens.len()
+                ),
             ));
         }
 
-        let (length_str, delimiter) = if bracket_content.contains('\t') {
-            let parts: Vec<&str> = bracket_content.split('\t').collect();
-            (parts[0], '\t')
-        } else if bracket_content.contains('|') {
-            let parts: Vec<&str> = bracket_content.split('|').collect();
-            (parts[0], '|')
-        } else {
-            (bracket_content, ',')
-        };
+        let list = PyList::empty(py);
+        for token in tokens {
+            list.append(self.parse_primitive_at(py, token, header_idx)?)?;
+        }
 
-        let length = length_str.parse::<usize>().map_err(|_| {
-            self.err_at(
-                py,
-                header_line_idx,
-                format!("Invalid array length: {}", length_str),
-            )
-        })?;
-
-        let substring_after_bracket = &trimmed[bracket_end..];
-        let colon_pos = self
-            .find_unquoted_char(substring_after_bracket, ':')
-            .unwrap_or(substring_after_bracket.len());
-        let fields = if let Some(brace_start) = substring_after_bracket[..colon_pos].find('{') {
-            let brace_end_relative =
-                substring_after_bracket[..colon_pos]
-                    .find('}')
-                    .ok_or_else(|| {
-                        self.err_at(py, header_line_idx, "Invalid field list: missing '}'")
-                    })?;
-
-            let field_content = &substring_after_bracket[brace_start + 1..brace_end_relative];
-            let field_parts = self.split_by_delimiter(field_content, delimiter);
-            let field_names: Vec<String> = field_parts
-                .iter()
-                .map(|f| {
-                    self.parse_key(py, f.trim())
-                        .unwrap_or_else(|_| f.trim().to_string())
-                })
-                .collect();
-            Some(field_names)
-        } else {
-            None
-        };
-
-        Ok((length, delimiter, fields))
+        Ok(list.into())
     }
 
-    pub fn parse_tabular_array(
+    /// Decode the rows of a tabular array (Section 9.3).
+    fn parse_tabular_rows(
         &mut self,
         py: Python,
-        length: usize,
-        delimiter: char,
-        fields: &[String],
-        expected_depth: usize,
-        header_line_idx: usize,
+        header: &Header,
+        fields: &[Field],
+        row_depth: usize,
+        header_idx: usize,
     ) -> PyResult<Py<PyAny>> {
         let list = PyList::empty(py);
+        let width = leaf_count(fields);
 
         while self.pos < self.lines.len() {
-            let line = self.lines[self.pos];
-            let line_trimmed = line.trim();
-
-            if !line_trimmed.is_empty() {
-                self.validate_indentation(py, line)?;
-                let line_depth = self.get_depth(line);
-
-                if line_depth < expected_depth {
-                    break;
-                }
-
-                if line_depth > expected_depth {
-                    self.pos += 1;
+            if self.lines[self.pos].is_blank() {
+                if self.blank_inside_scope(py, row_depth, !list.is_empty())? {
                     continue;
                 }
-            } else {
-                let mut lookahead = self.pos + 1;
-                while lookahead < self.lines.len() && self.lines[lookahead].trim().is_empty() {
-                    lookahead += 1;
-                }
-
-                if lookahead < self.lines.len() {
-                    let next_depth = self.get_depth(self.lines[lookahead]);
-                    if next_depth < expected_depth {
-                        break;
-                    }
-                }
-
-                if self.strict {
-                    return Err(self.err_here(py, "Blank line inside array"));
-                }
-                self.pos += 1;
-                continue;
-            }
-
-            if !self.is_tabular_row(line_trimmed, delimiter) {
                 break;
             }
 
-            let values = self.split_by_delimiter(line_trimmed, delimiter);
+            if self.depth_at(self.pos) != row_depth {
+                break;
+            }
 
-            if values.len() != fields.len() {
-                return Err(self.err_here(
+            let line_idx = self.pos;
+            let content = self.lines[line_idx].content;
+            if !is_row_line(content, header.delimiter) {
+                break;
+            }
+
+            let cells = split_cells(content, header.delimiter);
+            if self.strict && cells.len() != width {
+                return Err(self.err_at(
                     py,
+                    line_idx,
                     format!(
-                        "Tabular row has {} values but header defines {} fields",
-                        values.len(),
-                        fields.len()
+                        "Row has {} cells but the header declares {} leaf fields",
+                        cells.len(),
+                        width
                     ),
                 ));
             }
 
-            let dict = PyDict::new(py);
-
-            for (i, field) in fields.iter().enumerate() {
-                if i < values.len() {
-                    let value = self.parse_primitive(py, values[i])?;
-                    dict.set_item(field, value)?;
-                }
-            }
-
-            list.append(dict)?;
+            let mut next_cell = 0;
+            let row = self.build_row(py, fields, &cells, &mut next_cell, line_idx)?;
+            list.append(row)?;
             self.pos += 1;
         }
 
-        let actual_len = list.len();
-        if length > 0 && actual_len != length {
+        if self.strict && list.len() != header.length {
             return Err(self.err_at(
                 py,
-                header_line_idx,
+                header_idx,
                 format!(
-                    "Array declared length {} but found {} elements",
-                    length, actual_len
+                    "Array declared length {} but found {} rows",
+                    header.length,
+                    list.len()
                 ),
             ));
         }
@@ -708,529 +700,750 @@ impl<'a> Parser<'a> {
         Ok(list.into())
     }
 
-    pub fn parse_inline_array(
-        &self,
-        py: Python,
-        values_str: &str,
-        delimiter: char,
-        length: usize,
-        header_line_idx: usize,
-    ) -> PyResult<Py<PyAny>> {
-        let list = PyList::empty(py);
-
-        if values_str.is_empty() {
-            if length > 0 {
-                return Err(self.err_at(
-                    py,
-                    header_line_idx,
-                    format!("Array declared length {} but found 0 elements", length),
-                ));
-            }
-            return Ok(list.into());
-        }
-
-        let values = self.split_by_delimiter(values_str, delimiter);
-
-        if length > 0 && values.len() != length {
-            return Err(self.err_at(
-                py,
-                header_line_idx,
-                format!(
-                    "Array declared length {} but found {} elements",
-                    length,
-                    values.len()
-                ),
-            ));
-        }
-
-        for value_str in values {
-            let value = self.parse_primitive(py, value_str)?;
-            list.append(value)?;
-        }
-
-        Ok(list.into())
-    }
-
-    pub fn parse_expanded_array(
+    /// Decode the entry rows of a keyed tabular object (Section 9.5).
+    fn parse_keyed_entries(
         &mut self,
         py: Python,
-        length: usize,
-        expected_depth: usize,
-        header_line_idx: usize,
+        header: &Header,
+        fields: &[Field],
+        entry_depth: usize,
+        header_idx: usize,
     ) -> PyResult<Py<PyAny>> {
-        let list = PyList::empty(py);
+        let dict = PyDict::new(py);
+        let width = leaf_count(fields);
+        let mut entries = 0;
 
         while self.pos < self.lines.len() {
-            let line = self.lines[self.pos];
-            let line_trimmed = line.trim();
-
-            if !line_trimmed.is_empty() {
-                self.validate_indentation(py, line)?;
-                let line_depth = self.get_depth(line);
-
-                if line_depth < expected_depth {
-                    break;
-                }
-
-                if line_depth > expected_depth {
-                    self.pos += 1;
+            if self.lines[self.pos].is_blank() {
+                if self.blank_inside_scope(py, entry_depth, entries > 0)? {
                     continue;
                 }
-            } else {
-                let mut lookahead = self.pos + 1;
-                while lookahead < self.lines.len() && self.lines[lookahead].trim().is_empty() {
-                    lookahead += 1;
-                }
-
-                if lookahead < self.lines.len() {
-                    let next_depth = self.get_depth(self.lines[lookahead]);
-                    if next_depth < expected_depth {
-                        break;
-                    }
-                }
-
-                if self.strict {
-                    return Err(self.err_here(py, "Blank line inside array"));
-                }
-                self.pos += 1;
-                continue;
-            }
-
-            if !line_trimmed.starts_with('-') {
                 break;
             }
 
-            let item_str = if line_trimmed.len() > 1 && line_trimmed.chars().nth(1) == Some(' ') {
-                &line_trimmed[2..]
-            } else if line_trimmed.len() == 1 {
-                ""
-            } else {
-                &line_trimmed[1..]
-            };
-            let item_line_idx = self.pos;
-            self.pos += 1;
-
-            if item_str.is_empty() {
-                let empty_obj = PyDict::new(py);
-                list.append(empty_obj)?;
-                continue;
+            if self.depth_at(self.pos) != entry_depth {
+                break;
             }
 
-            let nested_header_end = if item_str.starts_with('[') {
-                self.find_unquoted_char(item_str, ':')
-            } else {
-                None
-            };
+            let line_idx = self.pos;
+            let content = self.lines[line_idx].content;
 
-            if let Some(colon_pos) = nested_header_end {
-                let (inner_len, inner_delim, inner_fields) =
-                    self.parse_header(py, &item_str[..colon_pos], item_line_idx)?;
-
-                let after_colon = item_str[colon_pos + 1..].trim();
-
-                if let Some(field_names) = inner_fields {
-                    // Nested tabular array: rows follow one level deeper.
-                    let value = self.parse_tabular_array(
+            // Every line at entry depth with an unquoted colon is an entry
+            // row; one without is an error in strict mode.
+            let Some(colon) = find_unquoted(content, ':') else {
+                if self.strict {
+                    return Err(self.err_at(
                         py,
-                        inner_len,
-                        inner_delim,
-                        &field_names,
-                        expected_depth + 1,
-                        item_line_idx,
-                    )?;
-                    list.append(value)?;
-                } else if after_colon.is_empty() {
-                    let value = self.parse_expanded_array(
-                        py,
-                        inner_len,
-                        expected_depth + 1,
-                        item_line_idx,
-                    )?;
-                    list.append(value)?;
-                } else {
-                    let value = self.parse_inline_array(
-                        py,
-                        after_colon,
-                        inner_delim,
-                        inner_len,
-                        item_line_idx,
-                    )?;
-                    list.append(value)?;
+                        line_idx,
+                        "Line at entry depth has no unquoted colon",
+                    ));
                 }
-            } else if self.find_key_value_colon(item_str).is_some() {
-                self.pos -= 1;
-                let value = self.parse_list_item_object(py, expected_depth)?;
-                list.append(value)?;
-            } else {
-                let value = self.parse_primitive(py, item_str)?;
-                list.append(value)?;
+                self.pos += 1;
+                continue;
+            };
+
+            let entry_key = self.parse_key(py, trim_spaces(&content[..colon]), line_idx)?;
+            let cells = split_cells(trim_spaces(&content[colon + 1..]), header.delimiter);
+
+            if self.strict && cells.len() != width {
+                return Err(self.err_at(
+                    py,
+                    line_idx,
+                    format!(
+                        "Entry row has {} cells but the header declares {} leaf fields",
+                        cells.len(),
+                        width
+                    ),
+                ));
             }
+
+            let mut next_cell = 0;
+            let value = self.build_row(py, fields, &cells, &mut next_cell, line_idx)?;
+            self.insert(py, &dict, &entry_key, value, line_idx)?;
+            entries += 1;
+            self.pos += 1;
         }
 
-        let actual_len = list.len();
-        if length > 0 && actual_len != length {
+        if self.strict && entries != header.length {
             return Err(self.err_at(
                 py,
-                header_line_idx,
+                header_idx,
                 format!(
-                    "Array declared length {} but found {} elements",
-                    length, actual_len
+                    "Keyed header declared {} entries but found {}",
+                    header.length, entries
                 ),
             ));
         }
 
-        Ok(list.into())
+        Ok(dict.into())
     }
 
-    fn parse_list_item_object(&mut self, py: Python, list_depth: usize) -> PyResult<Py<PyAny>> {
+    /// Materialize one row or entry row by walking the field list
+    /// depth-first (Section 9.3).
+    fn build_row(
+        &self,
+        py: Python,
+        fields: &[Field],
+        cells: &[&str],
+        next_cell: &mut usize,
+        line_idx: usize,
+    ) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
-        let line = self.lines[self.pos];
-        let line_trimmed = line.trim();
 
-        if let Some(item_content) = line_trimmed.strip_prefix("- ")
-            && let Some(colon_pos) = item_content.find(':')
-        {
-            let key_part = &item_content[..colon_pos];
-            let value_part = item_content[colon_pos + 1..].trim();
-
-            let quote_end_pos = key_part.rfind('"');
-
-            let has_array_syntax = if let Some(quote_end) = quote_end_pos {
-                key_part[quote_end + 1..].contains('[') && key_part[quote_end + 1..].contains(']')
-            } else {
-                key_part.contains('[') && key_part.contains(']')
-            };
-
-            if has_array_syntax {
-                let value = self.parse_field_array(py, item_content, list_depth + 1)?;
-
-                let key_name = if let Some(quote_end) = quote_end_pos {
-                    &key_part[..quote_end + 1]
-                } else {
-                    key_part.split('[').next().unwrap()
-                };
-                let key = self.parse_key(py, key_name)?;
-                dict.set_item(key, value)?;
-            } else {
-                let key = self.parse_key(py, key_part)?;
-                self.pos += 1;
-
-                if value_part.is_empty() {
-                    if self.pos < self.lines.len() {
-                        let next_depth = self.get_depth(self.lines[self.pos]);
-                        if next_depth > list_depth + 1 {
-                            let value = self.parse_object(py, list_depth + 2)?;
-                            dict.set_item(key, value)?;
-                        }
+        for field in fields {
+            match field {
+                Field::Leaf(name) => {
+                    // On a width mismatch in non-strict mode a leaf without
+                    // a cell is absent from the decoded object (Section 14.1).
+                    if let Some(cell) = cells.get(*next_cell) {
+                        let value = self.parse_primitive_at(py, cell, line_idx)?;
+                        dict.set_item(name, value)?;
                     }
-                } else {
-                    let value = self.parse_primitive(py, value_part)?;
-                    dict.set_item(key, value)?;
+                    *next_cell += 1;
                 }
-            }
-        }
-
-        while self.pos < self.lines.len() {
-            let line = self.lines[self.pos];
-            self.validate_indentation(py, line)?;
-            let line_depth = self.get_depth(line);
-
-            if line_depth <= list_depth {
-                break;
-            }
-
-            if line_depth != list_depth + 1 {
-                self.pos += 1;
-                continue;
-            }
-
-            let line_trimmed = line.trim();
-            if let Some(colon_pos) = line_trimmed.find(':') {
-                let key_part = &line_trimmed[..colon_pos];
-                let value_part = line_trimmed[colon_pos + 1..].trim();
-
-                let quote_end_pos = key_part.rfind('"');
-
-                let has_array_syntax = if let Some(quote_end) = quote_end_pos {
-                    key_part[quote_end + 1..].contains('[')
-                        && key_part[quote_end + 1..].contains(']')
-                } else {
-                    key_part.contains('[') && key_part.contains(']')
-                };
-
-                if has_array_syntax {
-                    let value = self.parse_field_array(py, line_trimmed, list_depth + 1)?;
-
-                    let key_name = if let Some(quote_end) = quote_end_pos {
-                        &key_part[..quote_end + 1]
-                    } else {
-                        key_part.split('[').next().unwrap()
-                    };
-                    let key = self.parse_key(py, key_name)?;
-                    dict.set_item(key, value)?;
-                    continue;
+                Field::Group(name, children) => {
+                    let nested = self.build_row(py, children, cells, next_cell, line_idx)?;
+                    dict.set_item(name, nested)?;
                 }
-
-                let key = self.parse_key(py, key_part)?;
-                self.pos += 1;
-
-                if value_part.is_empty() {
-                    let value = self.parse_object(py, line_depth + 1)?;
-                    dict.set_item(key, value)?;
-                } else {
-                    let value = self.parse_primitive(py, value_part)?;
-                    dict.set_item(key, value)?;
-                }
-            } else {
-                self.pos += 1;
             }
         }
 
         Ok(dict.into())
     }
 
-    fn parse_primitive(&self, py: Python, s: &str) -> PyResult<Py<PyAny>> {
-        let trimmed = s.trim();
-
-        if trimmed.starts_with('"') {
-            if !trimmed.ends_with('"') || trimmed.len() < 2 {
-                return Err(self.err_here(py, "Unterminated string"));
-            }
-            let unescaped = self.unescape_string(py, &trimmed[1..trimmed.len() - 1])?;
-            return Ok(PyString::new(py, &unescaped).into());
-        }
-
-        match trimmed {
-            "null" => Ok(py.None()),
-            "true" => Ok(PyBool::new(py, true).to_owned().into()),
-            "false" => Ok(PyBool::new(py, false).to_owned().into()),
-            _ => {
-                let check_s = trimmed.strip_prefix('-').unwrap_or(trimmed);
-
-                if check_s.len() > 1
-                    && check_s.starts_with('0')
-                    && check_s.chars().nth(1).unwrap().is_ascii_digit()
-                {
-                    return Ok(PyString::new(py, trimmed).into());
-                }
-
-                if let Ok(i) = trimmed.parse::<i64>() {
-                    Ok(PyInt::new(py, i).into())
-                } else if is_integer_literal(check_s) {
-                    // Outside i64 range: keep full precision as a Python int.
-                    Ok(py.get_type::<PyInt>().call1((trimmed,))?.unbind())
-                } else if let Ok(f) = trimmed.parse::<f64>() {
-                    Ok(PyFloat::new(py, f).into())
-                } else {
-                    Ok(PyString::new(py, trimmed).into())
-                }
-            }
-        }
-    }
-
-    fn should_expand_key(&self, key: &str) -> (bool, bool) {
-        let trimmed = key.trim();
-        let was_quoted = trimmed.starts_with('"') && trimmed.ends_with('"');
-
-        match self.expand_paths {
-            "off" | "never" => (false, was_quoted),
-            "safe" => (!was_quoted, was_quoted),
-            "always" => (true, was_quoted),
-            _ => (false, was_quoted),
-        }
-    }
-
-    fn find_array_bracket_start(&self, line: &str) -> Option<usize> {
-        let mut in_quotes = false;
-        let mut escape_next = false;
-
-        for (i, ch) in line.char_indices() {
-            if escape_next {
-                escape_next = false;
-                continue;
-            }
-
-            if ch == '\\' {
-                escape_next = true;
-                continue;
-            }
-
-            if ch == '"' {
-                in_quotes = !in_quotes;
-                continue;
-            }
-
-            if !in_quotes && ch == '[' {
-                return Some(i);
-            }
-        }
-
-        None
-    }
-
-    fn find_key_value_colon(&self, line: &str) -> Option<usize> {
-        let mut in_quotes = false;
-        let mut escape_next = false;
-
-        for (i, ch) in line.char_indices() {
-            if escape_next {
-                escape_next = false;
-                continue;
-            }
-
-            if ch == '\\' {
-                escape_next = true;
-                continue;
-            }
-
-            if ch == '"' {
-                in_quotes = !in_quotes;
-                continue;
-            }
-
-            if ch == ':' && !in_quotes {
-                return Some(i);
-            }
-        }
-
-        None
-    }
-
-    fn parse_key(&self, py: Python, s: &str) -> PyResult<String> {
-        let trimmed = s.trim();
-
-        if trimmed.starts_with('"') && trimmed.ends_with('"') {
-            self.unescape_string(py, &trimmed[1..trimmed.len() - 1])
-        } else {
-            Ok(trimmed.to_string())
-        }
-    }
-
-    fn unescape_string(&self, py: Python, s: &str) -> PyResult<String> {
-        let mut result = String::new();
-        let mut chars = s.chars();
-
-        while let Some(ch) = chars.next() {
-            if ch == '\\' {
-                match chars.next() {
-                    Some('\\') => result.push('\\'),
-                    Some('"') => result.push('"'),
-                    Some('n') => result.push('\n'),
-                    Some('r') => result.push('\r'),
-                    Some('t') => result.push('\t'),
-                    Some(other) => {
-                        return Err(
-                            self.err_here(py, format!("Invalid escape sequence: \\{}", other))
-                        );
-                    }
-                    None => {
-                        return Err(self.err_here(py, "Unterminated escape sequence"));
-                    }
-                }
-            } else {
-                result.push(ch);
-            }
-        }
-
-        Ok(result)
-    }
-
-    fn get_depth(&self, line: &str) -> usize {
-        let leading_spaces = line.len() - line.trim_start().len();
-        let indent_to_use = self.explicit_indent.unwrap_or(self.indent_size);
-        leading_spaces.checked_div(indent_to_use).unwrap_or(0)
-    }
-
-    fn get_indent_spaces(&self, line: &str) -> usize {
-        line.len() - line.trim_start().len()
-    }
-
-    fn is_tabular_row(&self, line: &str, delimiter: char) -> bool {
-        let mut in_quotes = false;
-        let mut escape_next = false;
-        let mut first_delim_pos = None;
-        let mut first_colon_pos = None;
-
-        for (i, ch) in line.char_indices() {
-            if escape_next {
-                escape_next = false;
-                continue;
-            }
-
-            if ch == '\\' {
-                escape_next = true;
-                continue;
-            }
-
-            if ch == '"' {
-                in_quotes = !in_quotes;
-            } else if !in_quotes {
-                if ch == delimiter && first_delim_pos.is_none() {
-                    first_delim_pos = Some(i);
-                }
-                if ch == ':' && first_colon_pos.is_none() {
-                    first_colon_pos = Some(i);
-                }
-            }
-        }
-
-        match (first_delim_pos, first_colon_pos) {
-            (None, None) => true,
-            (Some(_), None) => true,
-            (None, Some(_)) => false,
-            (Some(d), Some(c)) => d < c,
-        }
-    }
-
-    fn split_by_delimiter<'b>(&self, s: &'b str, delimiter: char) -> Vec<&'b str> {
-        let mut result = Vec::new();
-        let mut start = 0;
-        let mut in_quotes = false;
-        let mut prev_ch = '\0';
-
-        // Track byte positions while iterating through characters
-        for (byte_pos, ch) in s.char_indices() {
-            if ch == '"' && prev_ch != '\\' {
-                in_quotes = !in_quotes;
-            } else if ch == delimiter && !in_quotes {
-                let segment = &s[start..byte_pos];
-                result.push(segment.trim());
-                start = byte_pos + ch.len_utf8();
-            }
-            prev_ch = ch;
-        }
-
-        if start < s.len() {
-            result.push(s[start..].trim());
-        } else if start == s.len() && s.ends_with(delimiter) {
-            result.push("");
-        }
-
+    /// Decode the items of an array in list form (Sections 9.2 and 9.4).
+    fn parse_list_items(
+        &mut self,
+        py: Python,
+        header: &Header,
+        item_depth: usize,
+        header_idx: usize,
+    ) -> PyResult<Py<PyAny>> {
+        self.enter(py)?;
+        let result = self.parse_list_items_body(py, header, item_depth, header_idx);
+        self.leave();
         result
     }
 
-    fn find_unquoted_char(&self, s: &str, target: char) -> Option<usize> {
-        let mut in_quotes = false;
-        let mut escape_next = false;
+    fn parse_list_items_body(
+        &mut self,
+        py: Python,
+        header: &Header,
+        item_depth: usize,
+        header_idx: usize,
+    ) -> PyResult<Py<PyAny>> {
+        let list = PyList::empty(py);
 
-        for (i, ch) in s.char_indices() {
-            if escape_next {
-                escape_next = false;
-                continue;
+        while self.pos < self.lines.len() {
+            if self.lines[self.pos].is_blank() {
+                if self.blank_inside_scope(py, item_depth, !list.is_empty())? {
+                    continue;
+                }
+                break;
             }
 
-            if ch == '\\' {
-                escape_next = true;
-                continue;
+            if self.depth_at(self.pos) != item_depth {
+                break;
             }
 
-            if ch == '"' {
-                in_quotes = !in_quotes;
-            } else if ch == target && !in_quotes {
-                return Some(i);
+            let line_idx = self.pos;
+            let content = self.lines[line_idx].content;
+            let item = if content == "-" {
+                Some("")
+            } else {
+                content.strip_prefix("- ")
+            };
+            let Some(item) = item else {
+                break;
+            };
+            let item = trim_spaces(item);
+
+            let value = self.parse_list_item(py, item, item_depth, line_idx)?;
+            list.append(value)?;
+        }
+
+        if self.strict && list.len() != header.length {
+            return Err(self.err_at(
+                py,
+                header_idx,
+                format!(
+                    "Array declared length {} but found {} items",
+                    header.length,
+                    list.len()
+                ),
+            ));
+        }
+
+        Ok(list.into())
+    }
+
+    /// Decode one list item whose hyphen line sits at `item_depth`.
+    fn parse_list_item(
+        &mut self,
+        py: Python,
+        item: &str,
+        item_depth: usize,
+        line_idx: usize,
+    ) -> PyResult<Py<PyAny>> {
+        if item.is_empty() {
+            self.pos += 1;
+            return Ok(PyDict::new(py).into());
+        }
+
+        if item == "[]" {
+            self.pos += 1;
+            return Ok(PyList::empty(py).into());
+        }
+
+        let colon = find_unquoted(item, ':');
+        let bracket = find_unquoted(item, '[');
+        let header_shaped = match (bracket, colon) {
+            (Some(b), Some(c)) => b < c,
+            (Some(_), None) => true,
+            _ => false,
+        };
+
+        if header_shaped {
+            match self.try_parse_header(item) {
+                Ok(header) => {
+                    if header.key.is_none() {
+                        if header.fields.is_some() {
+                            if self.strict {
+                                return Err(self.err_at(
+                                    py,
+                                    line_idx,
+                                    "A keyless header carrying a field list is valid only at \
+                                     the document root",
+                                ));
+                            }
+                        } else {
+                            // The item is the inner array itself, so its own
+                            // items sit one level deeper (Section 10).
+                            return self.parse_inner_array(py, &header, item_depth, line_idx);
+                        }
+                    } else {
+                        // A keyed first field stands one level deeper than
+                        // the hyphen line (Section 10).
+                        return self.parse_list_item_object(py, item, item_depth);
+                    }
+                }
+                Err(msg) => {
+                    if self.strict {
+                        return Err(self.err_at(py, line_idx, msg));
+                    }
+                }
             }
         }
 
-        None
+        if colon.is_some() {
+            return self.parse_list_item_object(py, item, item_depth);
+        }
+
+        self.pos += 1;
+        self.parse_primitive_at(py, item, line_idx)
     }
+
+    /// Decode a `- [M]: …` list item (Sections 9.2 and 9.4).
+    fn parse_inner_array(
+        &mut self,
+        py: Python,
+        header: &Header,
+        item_depth: usize,
+        line_idx: usize,
+    ) -> PyResult<Py<PyAny>> {
+        self.pos += 1;
+
+        if !header.rest.is_empty() {
+            return self.parse_inline_array(py, &header.rest, header, line_idx);
+        }
+
+        self.parse_list_items(py, header, item_depth + 1, line_idx)
+    }
+
+    /// Decode an object list item: its first field is carried on the hyphen
+    /// line and stands one level deeper (Section 10).
+    fn parse_list_item_object(
+        &mut self,
+        py: Python,
+        item: &str,
+        item_depth: usize,
+    ) -> PyResult<Py<PyAny>> {
+        self.enter(py)?;
+        let result = self.parse_list_item_object_body(py, item, item_depth);
+        self.leave();
+        result
+    }
+
+    fn parse_list_item_object_body(
+        &mut self,
+        py: Python,
+        item: &str,
+        item_depth: usize,
+    ) -> PyResult<Py<PyAny>> {
+        let field_depth = item_depth + 1;
+        let dict = PyDict::new(py);
+
+        // The field carried on the hyphen line is parsed as a field line at
+        // `field_depth`; the parser still points at the hyphen line, so the
+        // field parser consumes it.
+        self.parse_object_field(py, &dict, item, field_depth, true)?;
+
+        while self.pos < self.lines.len() {
+            if self.lines[self.pos].is_blank() {
+                if self.blank_inside_scope(py, field_depth, true)? {
+                    continue;
+                }
+                break;
+            }
+
+            let line_depth = self.depth_at(self.pos);
+            if line_depth < field_depth {
+                break;
+            }
+
+            if line_depth > field_depth {
+                let content = self.lines[self.pos].content;
+                if find_unquoted(content, ':').is_none() {
+                    return Err(self.err_here(py, format!("Unexpected line: {}", content)));
+                }
+                if self.strict {
+                    return Err(self.err_here(py, "Line is indented deeper than its scope"));
+                }
+                self.pos += 1;
+                continue;
+            }
+
+            let content = self.lines[self.pos].content;
+            if content == "-" || content.starts_with("- ") {
+                break;
+            }
+
+            self.parse_object_field(py, &dict, content, field_depth, true)?;
+        }
+
+        Ok(dict.into())
+    }
+
+    /// Parse a header line per the Section 6 grammar. `Err` carries the
+    /// diagnostic for a malformed header, which strict mode reports and
+    /// non-strict mode replaces with key-value parsing.
+    fn try_parse_header(&self, content: &str) -> Result<Header, String> {
+        let bracket = find_unquoted(content, '[').ok_or("Invalid array header: missing '['")?;
+
+        let key_token = &content[..bracket];
+        if key_token != trim_spaces(key_token) {
+            return Err("Whitespace is not allowed between a key and its bracket segment".into());
+        }
+
+        let key = if key_token.is_empty() {
+            None
+        } else if key_token.starts_with('"') {
+            match quoted_token_end(key_token) {
+                Some(end) if end + 1 == key_token.len() => {
+                    Some(unescape(&key_token[1..end]).map_err(|e| e.to_string())?)
+                }
+                Some(_) => return Err("Characters after a quoted key's closing quote".into()),
+                None => return Err("Unterminated quoted key".into()),
+            }
+        } else {
+            Some(key_token.to_string())
+        };
+
+        let close = content[bracket..]
+            .find(']')
+            .map(|offset| offset + bracket)
+            .ok_or("Invalid array header: missing ']'")?;
+
+        let (length, keyed, delimiter) = parse_bracket_segment(&content[bracket + 1..close])?;
+
+        let after_bracket = &content[close + 1..];
+        let (fields, after_fields) = if after_bracket.starts_with('{') {
+            let end = field_list_end(after_bracket)
+                .ok_or("Invalid field list: unmatched brace in header")?;
+            let entries = parse_field_list(&after_bracket[1..end], delimiter, self.strict, 1)?;
+            (Some(entries), &after_bracket[end + 1..])
+        } else {
+            (None, after_bracket)
+        };
+
+        if keyed && fields.is_none() {
+            return Err("A keyed header must carry a field list".into());
+        }
+
+        let rest = after_fields
+            .strip_prefix(':')
+            .ok_or("Invalid array header: content between the bracket segment and the colon")?;
+
+        let rest = trim_spaces(rest);
+        if fields.is_some() && !rest.is_empty() {
+            return Err("A header carrying a field list takes no inline content".into());
+        }
+
+        Ok(Header {
+            key,
+            length,
+            keyed,
+            delimiter,
+            fields,
+            rest: rest.to_string(),
+        })
+    }
+
+    /// Decode a key token: quoted keys are unescaped, unquoted ones are
+    /// literal (Section 7.4).
+    fn parse_key(&self, py: Python, token: &str, line_idx: usize) -> PyResult<String> {
+        if !token.starts_with('"') {
+            return Ok(token.to_string());
+        }
+
+        match quoted_token_end(token) {
+            Some(end) if end + 1 == token.len() => {
+                unescape(&token[1..end]).map_err(|msg| self.err_at(py, line_idx, msg))
+            }
+            Some(_) => Err(self.err_at(
+                py,
+                line_idx,
+                "Characters after a quoted key's closing quote",
+            )),
+            None => Err(self.err_at(py, line_idx, "Unterminated quoted key")),
+        }
+    }
+
+    fn parse_primitive(&self, py: Python, token: &str) -> PyResult<Py<PyAny>> {
+        self.parse_primitive_at(py, token, self.pos)
+    }
+
+    /// Decode a value token (Section 4).
+    fn parse_primitive_at(&self, py: Python, token: &str, line_idx: usize) -> PyResult<Py<PyAny>> {
+        if token.starts_with('"') {
+            return match quoted_token_end(token) {
+                Some(end) if end + 1 == token.len() => {
+                    let text =
+                        unescape(&token[1..end]).map_err(|msg| self.err_at(py, line_idx, msg))?;
+                    Ok(PyString::new(py, &text).into())
+                }
+                Some(_) => Err(self.err_at(
+                    py,
+                    line_idx,
+                    "Characters after a quoted token's closing quote",
+                )),
+                None => Err(self.err_at(py, line_idx, "Unterminated string")),
+            };
+        }
+
+        match token {
+            "null" => return Ok(py.None()),
+            "true" => return Ok(PyBool::new(py, true).to_owned().into()),
+            "false" => return Ok(PyBool::new(py, false).to_owned().into()),
+            _ => {}
+        }
+
+        if is_number_token(token) {
+            let integral = !token.contains(['.', 'e', 'E']);
+            if integral {
+                return match token.parse::<i64>() {
+                    Ok(value) => Ok(PyInt::new(py, value).into()),
+                    // Outside i64: keep every digit as a Python int.
+                    Err(_) => Ok(py.get_type::<PyInt>().call1((token,))?.unbind()),
+                };
+            }
+            if let Ok(value) = token.parse::<f64>() {
+                // A magnitude beyond f64 is outside the documented numeric
+                // domain: strict mode rejects it rather than return an
+                // infinity that would re-encode as null (Section 4).
+                if !value.is_finite() && self.strict {
+                    return Err(self.err_at(
+                        py,
+                        line_idx,
+                        format!("Number {} is out of range", token),
+                    ));
+                }
+                // -0 decodes as zero (Section 4).
+                let value = if value == 0.0 { 0.0 } else { value };
+                return Ok(PyFloat::new(py, value).into());
+            }
+        }
+
+        Ok(PyString::new(py, token).into())
+    }
+}
+
+/// Parse `N`, `N<delim>`, `N:` or `N:<delim>` from inside a bracket
+/// segment (Section 6).
+fn parse_bracket_segment(segment: &str) -> Result<(usize, bool, char), String> {
+    let (digits, rest) = split_digits(segment);
+
+    if !is_length_token(digits) {
+        return Err(format!("Invalid array length: '{}'", segment));
+    }
+
+    let (keyed, rest) = match rest.strip_prefix(':') {
+        Some(rest) => (true, rest),
+        None => (false, rest),
+    };
+
+    let delimiter = match rest {
+        "" => ',',
+        "\t" => '\t',
+        "|" => '|',
+        _ => return Err(format!("Malformed bracket segment: '{}'", segment)),
+    };
+
+    let length = digits
+        .parse::<usize>()
+        .map_err(|_| format!("Invalid array length: '{}'", digits))?;
+
+    Ok((length, keyed, delimiter))
+}
+
+/// Index of the `}` closing the field list that starts at byte 0, ignoring
+/// braces inside quoted names (Section 6).
+fn field_list_end(s: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for (i, ch) in s.char_indices() {
+        if in_quotes {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_quotes = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_quotes = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+/// Parse the entries of a field list, recursing into nested field groups
+/// (Section 6).
+fn parse_field_list(
+    body: &str,
+    delimiter: char,
+    strict: bool,
+    nesting: usize,
+) -> Result<Vec<Field>, String> {
+    if nesting > MAX_NESTING {
+        return Err(format!(
+            "Maximum nesting depth of {} exceeded in a field list",
+            MAX_NESTING
+        ));
+    }
+
+    if trim_spaces(body).is_empty() {
+        return Err("Invalid field list: a field list must declare at least one field".into());
+    }
+
+    let mut fields = Vec::new();
+
+    for entry in split_field_entries(body, delimiter)? {
+        let entry = trim_spaces(entry);
+        let (name_token, group) = match entry.find('{') {
+            Some(_) if entry.ends_with('}') => {
+                let brace = match entry.starts_with('"') {
+                    true => {
+                        let end =
+                            quoted_token_end(entry).ok_or("Unterminated quoted field name")?;
+                        entry[end + 1..].find('{').map(|offset| offset + end + 1)
+                    }
+                    false => entry.find('{'),
+                };
+                match brace {
+                    Some(brace) => {
+                        let end = field_list_end(&entry[brace..])
+                            .ok_or("Invalid field list: unmatched brace in header")?;
+                        (
+                            &entry[..brace],
+                            Some(parse_field_list(
+                                &entry[brace + 1..brace + end],
+                                delimiter,
+                                strict,
+                                nesting + 1,
+                            )?),
+                        )
+                    }
+                    None => (entry, None),
+                }
+            }
+            _ => (entry, None),
+        };
+
+        let name = decode_field_name(trim_spaces(name_token))?;
+
+        if strict && fields.iter().any(|f: &Field| f.name() == name) {
+            return Err(format!("Duplicate field name '{}' in a field list", name));
+        }
+
+        fields.push(match group {
+            Some(children) => Field::Group(name, children),
+            None => Field::Leaf(name),
+        });
+    }
+
+    Ok(fields)
+}
+
+/// Split a field list on the active delimiter at its top brace level,
+/// rejecting any other unquoted delimiter character (Section 6).
+fn split_field_entries(body: &str, delimiter: char) -> Result<Vec<&str>, String> {
+    let mut entries = Vec::new();
+    let mut start = 0;
+    let mut brace_depth = 0usize;
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for (i, ch) in body.char_indices() {
+        if in_quotes {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_quotes = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_quotes = true,
+            '{' => brace_depth += 1,
+            '}' => brace_depth = brace_depth.saturating_sub(1),
+            _ if ch == delimiter => {
+                // A nested group is split by its own recursive call.
+                if brace_depth == 0 {
+                    entries.push(&body[start..i]);
+                    start = i + ch.len_utf8();
+                }
+            }
+            ',' | '\t' | '|' => {
+                return Err(
+                    "Header delimiter mismatch between the bracket segment and the field list"
+                        .into(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    entries.push(&body[start..]);
+    Ok(entries)
+}
+
+fn decode_field_name(token: &str) -> Result<String, String> {
+    if !token.starts_with('"') {
+        if token.is_empty() {
+            return Err("Invalid field list: empty field name".into());
+        }
+        return Ok(token.to_string());
+    }
+
+    match quoted_token_end(token) {
+        Some(end) if end + 1 == token.len() => unescape(&token[1..end]),
+        Some(_) => Err("Characters after a quoted field name's closing quote".into()),
+        None => Err("Unterminated quoted field name".into()),
+    }
+}
+
+/// Split a delimited value sequence, preserving empty tokens and trimming
+/// spaces around each one (Section 11.2).
+fn split_cells(s: &str, delimiter: char) -> Vec<&str> {
+    if s.is_empty() {
+        return Vec::new();
+    }
+
+    let mut cells = Vec::new();
+    let mut start = 0;
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for (i, ch) in s.char_indices() {
+        if in_quotes {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_quotes = false;
+            }
+            continue;
+        }
+
+        if ch == '"' {
+            in_quotes = true;
+        } else if ch == delimiter {
+            cells.push(trim_spaces(&s[start..i]));
+            start = i + ch.len_utf8();
+        }
+    }
+
+    cells.push(trim_spaces(&s[start..]));
+    cells
+}
+
+/// Decide whether a line at row depth is a row or the key-value line that
+/// ends the rows (Section 9.3).
+fn is_row_line(content: &str, delimiter: char) -> bool {
+    match (
+        find_unquoted(content, delimiter),
+        find_unquoted(content, ':'),
+    ) {
+        (_, None) => true,
+        (None, Some(_)) => false,
+        (Some(d), Some(c)) => d < c,
+    }
+}
+
+/// Unescape the body of a quoted token per the Section 7.1 escape table.
+fn unescape(body: &str) -> Result<String, String> {
+    let mut out = String::with_capacity(body.len());
+    let mut chars = body.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some('\\') => out.push('\\'),
+            Some('"') => out.push('"'),
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('u') => {
+                let mut code = 0u32;
+                for _ in 0..4 {
+                    let digit = chars
+                        .next()
+                        .and_then(|c| c.to_digit(16))
+                        .ok_or("Truncated \\uXXXX escape sequence")?;
+                    code = code * 16 + digit;
+                }
+                // Lone surrogates are rejected (Section 7.1).
+                let ch = char::from_u32(code)
+                    .ok_or_else(|| format!("Escape \\u{:04x} is not a Unicode scalar", code))?;
+                out.push(ch);
+            }
+            Some(other) => return Err(format!("Invalid escape sequence: \\{}", other)),
+            None => return Err("Unterminated escape sequence".into()),
+        }
+    }
+
+    Ok(out)
 }

@@ -231,11 +231,26 @@ jobs:
         uses: actions/attest@v4
         with:
           subject-path: 'wheels-*/*'
+
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    needs: [release]
+    # Naming an environment is what records the run under Deployments, on
+    # the repository page and in Settings > Environments, where the release
+    # can also be gated behind a review.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/toons/${{ github.ref_name }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
       - name: Install uv
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: astral-sh/setup-uv@v10.1.0
       - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        run: uv publish 'wheels-*/*'
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        # Trusted publishing: PyPI mints a short-lived token from the job's
+        # OIDC identity, so no API token is stored. "always" fails loudly if
+        # that identity is missing instead of falling back.
+        run: uv publish --trusted-publishing always 'wheels-*/*'

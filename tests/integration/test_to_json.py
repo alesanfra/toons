@@ -46,8 +46,8 @@ class TestToJson:
         with pytest.raises(toons.ToonDecodeError):
             toons.to_json("a:\n  b:\n     c: 1\n")
 
-    def test_to_json_respects_expand_paths(self):
-        """to_json() forwards expand_paths to the TOON parser."""
-        result = toons.to_json("user.name: Alice", expand_paths="safe")
+    def test_to_json_respects_indent_size(self):
+        """to_json() forwards indent_size to the TOON parser."""
+        result = toons.to_json("a:\n    b: 1", indent_size=4)
 
-        assert result == json.dumps({"user": {"name": "Alice"}})
+        assert result == json.dumps({"a": {"b": 1}})

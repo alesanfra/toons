@@ -107,12 +107,10 @@ uv run --no-sync mkdocs serve   # http://127.0.0.1:8000
 uv run --no-sync mkdocs build   # static site in site/
 ```
 
-Read the Docs installs `docs/requirements.txt`. Regenerate it whenever the
-`docs` dependency group changes:
-
-```bash
-uv export --only-group docs --no-hashes --no-emit-project -o docs/requirements.txt
-```
+Read the Docs runs `uv sync` with the `docs` group against `pyproject.toml`
+and `uv.lock`, so adding a docs dependency needs nothing more than a lock
+update. The build compiles the extension as well, which is why
+`.readthedocs.yaml` also asks for a Rust toolchain.
 
 ## Debugging
 

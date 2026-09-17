@@ -69,23 +69,19 @@ print(toons.to_json("users[2]{id,name}:\n  1,A\n  2,B", indent=2))
 
 ## Specification
 
-TOONS implements **TOON specification v3.0**, validated on every build against
+TOONS implements **TOON specification v4.1**, validated on every build against
 the official conformance fixtures from
-[spec tag v3.0.1](https://github.com/toon-format/spec/tree/v3.0.1/tests).
-
-The upstream specification is now at v4.1. The v4 additions (comment lines,
-nested field groups, keyed tabular form, `key: []` for empty arrays, the
-`indentSize` rename) are not implemented yet.
+[spec tag v4.1.1](https://github.com/toon-format/spec/tree/v4.1.1/tests).
 
 ```python
 import toons
 
-print(toons.__toon_spec__)   # 3.0   specification version
+print(toons.__toon_spec__)   # 4.1   specification version
 print(toons.__version__)     # 0.8.0 library version
 ```
 
 ## Learn next
 
 - [Data Types](data-types.md) - how Python values map to TOON
-- [Complex Examples](examples.md) - delimiters, key folding, path expansion
+- [Complex Examples](examples.md) - delimiters, tabular forms, strict mode
 - [API Reference](api-reference.md) - full signatures

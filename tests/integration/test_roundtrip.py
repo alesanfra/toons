@@ -13,11 +13,11 @@ class TestNestedArrays:
         [
             (
                 {"k": [[{"a": 1}, {"a": 2}]]},
-                "k[1]:\n  - [2]{a}:\n    1\n    2",
+                "k[1]:\n  - [2]:\n    - a: 1\n    - a: 2",
             ),
             (
                 [[{"a": 1}, {"a": 2}]],
-                "[1]:\n  - [2]{a}:\n    1\n    2",
+                "[1]:\n  - [2]:\n    - a: 1\n    - a: 2",
             ),
             (
                 {"k": [[[1, 2], [3]]]},
@@ -67,25 +67,3 @@ class TestTuples:
     def test_tuple_encodes_as_array(self, data, expected_toon):
         """A tuple produces the same output as the equivalent list."""
         assert toons.dumps(data) == expected_toon
-
-
-class TestPathExpansion:
-    """Dotted keys expand into nested objects according to the mode."""
-
-    @pytest.mark.parametrize(
-        "toon_text,mode,expected",
-        [
-            ("user.name: Alice", None, {"user.name": "Alice"}),
-            ("user.name: Alice", "off", {"user.name": "Alice"}),
-            ("user.name: Alice", "safe", {"user": {"name": "Alice"}}),
-            ("user.name: Alice", "always", {"user": {"name": "Alice"}}),
-            ('"user.name": Alice', "safe", {"user.name": "Alice"}),
-            ('"user.name": Alice', "always", {"user": {"name": "Alice"}}),
-            ("a.b[2]: 1,2", "safe", {"a": {"b": [1, 2]}}),
-            ('"a.b"[2]: 1,2', "safe", {"a.b": [1, 2]}),
-            ('"a.b"[2]: 1,2', "always", {"a": {"b": [1, 2]}}),
-        ],
-    )
-    def test_expand_paths_modes(self, toon_text, mode, expected):
-        """A quoted key is expanded only in "always" mode."""
-        assert toons.loads(toon_text, expand_paths=mode) == expected
