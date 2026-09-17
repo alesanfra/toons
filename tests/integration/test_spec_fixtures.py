@@ -130,7 +130,11 @@ def test_integration_dump(
     tmp_path: Path,
 ):
     """Encode a fixture case with dump()."""
-    with open(tmp_path / "temp.toon", "w+t", encoding="utf-8") as f:
+    # newline="" keeps a fixture's CRLF intact: Windows would otherwise
+    # translate every "\n" written in text mode into another "\r\n".
+    with open(
+        tmp_path / "temp.toon", "w+t", encoding="utf-8", newline=""
+    ) as f:
         if should_error:
             with pytest.raises(Exception):
                 toons.dump(input_data, f, **options)
@@ -180,7 +184,11 @@ def test_integration_load(
 ):
     """Decode a fixture case with load()."""
 
-    with open(tmp_path / "temp.toon", "w+t", encoding="utf-8") as f:
+    # newline="" keeps a fixture's CRLF intact: Windows would otherwise
+    # translate every "\n" written in text mode into another "\r\n".
+    with open(
+        tmp_path / "temp.toon", "w+t", encoding="utf-8", newline=""
+    ) as f:
         f.write(input_toon)
         f.seek(0)
 
