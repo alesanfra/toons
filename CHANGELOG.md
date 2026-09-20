@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `dumps` walks the Python objects without building intermediate copies:
+  table cells are looked up with the header's own str objects instead of a
+  fresh str per cell, object entries keep their keys as str objects instead
+  of copying them into a `Vec` per row, primitive columns are counted rather
+  than collected during tabular detection, and built-in types are matched by
+  exact type check before the `extract` fallbacks. Encoding is 2.3x to 4.1x
+  faster on tabular, nested, keyed, and flat payloads; on three of the four it
+  is now at or below `json.dumps`. `tests/integration/test_encode_performance.py`
+  bounds the ratio to `json.dumps` per payload shape, and
+  `benchmarks/encode_vs_json.py` prints it.
+
 ## [0.8.0] - 2026-09-17
 
 ### Added

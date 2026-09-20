@@ -1,6 +1,8 @@
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDate, PyDateTime, PyDict, PyInt, PyList, PyString, PyTime, PyTuple};
+use pyo3::types::{
+    PyBool, PyDate, PyDateTime, PyDict, PyFloat, PyInt, PyList, PyString, PyTime, PyTuple,
+};
 use std::fmt::Write as FmtWrite;
 
 /// Maximum container nesting accepted by the encoder. Mirrors CPython's
@@ -28,9 +30,20 @@ pub fn serialize(obj: &Bound<'_, PyAny>, delimiter: char, indent_size: usize) ->
 /// One entry of a header's field list (Section 1.4). A group renders a
 /// nested-uniform column as `name{sub1,sub2}` and consumes as many row
 /// cells as it has leaf fields.
-enum Field {
-    Leaf(String),
-    Group(String, Vec<Field>),
+///
+/// `key` is the str object the field was detected from. Rows are looked up
+/// with it directly, so the hash CPython caches on that object is reused
+/// for every row instead of a fresh str being built per cell.
+enum Field<'py> {
+    Leaf {
+        name: String,
+        key: Bound<'py, PyString>,
+    },
+    Group {
+        name: String,
+        key: Bound<'py, PyString>,
+        children: Vec<Field<'py>>,
+    },
 }
 
 /// Writes the TOON text of one document.
@@ -70,9 +83,8 @@ impl Encoder {
     }
 
     fn write_indent(&mut self, depth: usize) {
-        for _ in 0..depth * self.indent_size {
-            self.out.push(' ');
-        }
+        self.out
+            .extend(std::iter::repeat_n(' ', depth * self.indent_size));
     }
 
     fn write_newline(&mut self, depth: usize) {
@@ -135,7 +147,7 @@ impl Encoder {
             if index > 0 {
                 self.write_newline(0);
             }
-            self.write_field(key, value, 0)?;
+            self.write_field(&key.to_cow()?, value, 0)?;
         }
 
         Ok(())
@@ -216,7 +228,7 @@ impl Encoder {
 
         for (key, value) in entries_of(dict)?.iter() {
             self.write_newline(depth + 1);
-            self.write_field(key, value, depth + 1)?;
+            self.write_field(&key.to_cow()?, value, depth + 1)?;
         }
 
         Ok(())
@@ -233,7 +245,7 @@ impl Encoder {
         }
     }
 
-    fn write_tabular_header(&mut self, length: usize, fields: &[Field]) {
+    fn write_tabular_header(&mut self, length: usize, fields: &[Field<'_>]) {
         self.write_bracket(length, false);
         self.out.push(']');
         self.write_field_list(fields);
@@ -241,15 +253,15 @@ impl Encoder {
     }
 
     /// Write `{f1<delim>f2{sub}}` (Section 6).
-    fn write_field_list(&mut self, fields: &[Field]) {
+    fn write_field_list(&mut self, fields: &[Field<'_>]) {
         self.out.push('{');
         for (index, field) in fields.iter().enumerate() {
             if index > 0 {
                 self.out.push(self.delimiter);
             }
             match field {
-                Field::Leaf(name) => self.write_key(name),
-                Field::Group(name, children) => {
+                Field::Leaf { name, .. } => self.write_key(name),
+                Field::Group { name, children, .. } => {
                     self.write_key(name);
                     self.write_field_list(children);
                 }
@@ -270,10 +282,10 @@ impl Encoder {
     }
 
     /// Write one row per element at `depth` (Section 9.3).
-    fn write_rows(
+    fn write_rows<'py>(
         &mut self,
-        list: &Bound<'_, PyList>,
-        fields: &[Field],
+        list: &Bound<'py, PyList>,
+        fields: &[Field<'py>],
         depth: usize,
     ) -> PyResult<()> {
         for item in list.iter() {
@@ -287,15 +299,15 @@ impl Encoder {
     }
 
     /// Write one entry row per entry at `depth` (Section 9.5).
-    fn write_entry_rows(
+    fn write_entry_rows<'py>(
         &mut self,
-        dict: &Bound<'_, PyDict>,
-        fields: &[Field],
+        dict: &Bound<'py, PyDict>,
+        fields: &[Field<'py>],
         depth: usize,
     ) -> PyResult<()> {
         for (key, value) in entries_of(dict)?.iter() {
             self.write_newline(depth);
-            self.write_key(key);
+            self.write_key(&key.to_cow()?);
             self.out.push_str(": ");
             let entry = value.cast::<PyDict>()?;
             let mut first_cell = true;
@@ -306,24 +318,24 @@ impl Encoder {
     }
 
     /// Write an object's leaf values in depth-first field order.
-    fn write_cells(
+    fn write_cells<'py>(
         &mut self,
-        dict: &Bound<'_, PyDict>,
-        fields: &[Field],
+        dict: &Bound<'py, PyDict>,
+        fields: &[Field<'py>],
         first_cell: &mut bool,
     ) -> PyResult<()> {
         for field in fields {
             match field {
-                Field::Leaf(name) => {
+                Field::Leaf { key, .. } => {
                     if !*first_cell {
                         self.out.push(self.delimiter);
                     }
                     *first_cell = false;
-                    let value = dict.get_item(name)?.unwrap();
+                    let value = dict.get_item(key)?.unwrap();
                     self.write_primitive(&value)?;
                 }
-                Field::Group(name, children) => {
-                    let nested = dict.get_item(name)?.unwrap();
+                Field::Group { key, children, .. } => {
+                    let nested = dict.get_item(key)?.unwrap();
                     let nested = nested.cast::<PyDict>()?;
                     self.write_cells(nested, children, first_cell)?;
                 }
@@ -394,30 +406,44 @@ impl Encoder {
             } else {
                 self.write_newline(depth + 1);
             }
-            self.write_field(key, value, depth + 1)?;
+            self.write_field(&key.to_cow()?, value, depth + 1)?;
         }
 
         Ok(())
     }
 
     /// Write a primitive at the current position (Sections 2, 3 and 7).
+    ///
+    /// The exact built-in types are matched by type check first, which is a
+    /// pointer comparison; the `extract` fallbacks below them build a Python
+    /// exception for every type they reject and only remain for subclasses
+    /// and duck-typed numbers (Decimal, NumPy scalars).
     fn write_primitive(&mut self, obj: &Bound<'_, PyAny>) -> PyResult<()> {
         if obj.is_none() {
             self.out.push_str("null");
-        } else if let Ok(flag) = obj.extract::<bool>() {
-            self.out.push_str(if flag { "true" } else { "false" });
+        } else if let Ok(flag) = obj.cast_exact::<PyBool>() {
+            self.out
+                .push_str(if flag.is_true() { "true" } else { "false" });
         } else if let Ok(int_obj) = obj.cast::<PyInt>() {
             self.write_int(int_obj)?;
+        } else if let Ok(float_obj) = obj.cast_exact::<PyFloat>() {
+            self.write_float(float_obj.value());
+        } else if let Ok(text) = obj.cast::<PyString>() {
+            match text.to_cow() {
+                Ok(text) => self.write_string(&text),
+                // The only str that cannot be read as UTF-8 is one holding an
+                // unpaired surrogate, which has no TOON representation
+                // (Section 3).
+                Err(_) => {
+                    return Err(PyValueError::new_err(
+                        "String contains an unpaired surrogate and cannot be encoded",
+                    ));
+                }
+            }
+        } else if let Ok(flag) = obj.extract::<bool>() {
+            self.out.push_str(if flag { "true" } else { "false" });
         } else if let Ok(number) = obj.extract::<f64>() {
             self.write_float(number);
-        } else if let Ok(text) = obj.extract::<String>() {
-            self.write_string(&text);
-        } else if obj.is_instance_of::<PyString>() {
-            // The only str that does not extract is one holding an unpaired
-            // surrogate, which has no TOON representation (Section 3).
-            return Err(PyValueError::new_err(
-                "String contains an unpaired surrogate and cannot be encoded",
-            ));
         } else if obj.is_instance_of::<PyDateTime>()
             || obj.is_instance_of::<PyDate>()
             || obj.is_instance_of::<PyTime>()
@@ -484,22 +510,32 @@ impl Encoder {
 }
 
 /// Collect a dict as `(key, value)` pairs, rejecting non-string keys.
-fn entries_of<'py>(dict: &Bound<'py, PyDict>) -> PyResult<Vec<(String, Bound<'py, PyAny>)>> {
+///
+/// The pairs are collected before anything is written so that Python code
+/// reached while writing (a `datetime` subclass's `isoformat`, for one)
+/// cannot change the dict under an open iteration. Keys stay as str objects;
+/// their text is borrowed only when written.
+fn entries_of<'py>(
+    dict: &Bound<'py, PyDict>,
+) -> PyResult<Vec<(Bound<'py, PyString>, Bound<'py, PyAny>)>> {
     let mut entries = Vec::with_capacity(dict.len());
 
     for (key, value) in dict.iter() {
-        match key.extract::<String>() {
-            Ok(key) => entries.push((key, value)),
-            Err(_) => {
-                return Err(PyTypeError::new_err(format!(
-                    "TOON object keys must be strings, got {}",
-                    key.get_type().name()?
-                )));
-            }
+        match key.cast_into::<PyString>() {
+            Ok(key) if key.to_cow().is_ok() => entries.push((key, value)),
+            Ok(key) => return Err(non_string_key(key.as_any())),
+            Err(error) => return Err(non_string_key(&error.into_inner())),
         }
     }
 
     Ok(entries)
+}
+
+fn non_string_key(key: &Bound<'_, PyAny>) -> PyErr {
+    match key.get_type().name() {
+        Ok(name) => PyTypeError::new_err(format!("TOON object keys must be strings, got {}", name)),
+        Err(error) => error,
+    }
 }
 
 /// Return `obj` as a list when it is a list or a tuple, so both encode as
@@ -625,72 +661,102 @@ fn all_primitive(list: &Bound<'_, PyList>) -> bool {
     list.iter().all(|item| is_primitive(&item))
 }
 
-/// Collect the keys of a dict in encounter order, or `None` when any key is
-/// not a string.
-fn string_keys(dict: &Bound<'_, PyDict>) -> Option<Vec<String>> {
-    dict.keys()
-        .iter()
-        .map(|key| key.extract::<String>().ok())
-        .collect()
+/// One column of a candidate table while its rows are being inspected.
+struct Column<'py> {
+    name: String,
+    key: Bound<'py, PyString>,
+    primitive_cells: usize,
+    /// The cells that are containers. A column is a leaf when this stays
+    /// empty, a nested group when every cell lands here, and disqualifying
+    /// when the two are mixed.
+    nested_cells: Vec<Bound<'py, PyAny>>,
+}
+
+/// Start one column per key of the first row, or `None` when any key is not
+/// a string.
+fn columns_of<'py>(first: &Bound<'py, PyDict>) -> Option<Vec<Column<'py>>> {
+    let mut columns = Vec::with_capacity(first.len());
+
+    for (key, _) in first.iter() {
+        let key = key.cast_into::<PyString>().ok()?;
+        let name = key.to_cow().ok()?.into_owned();
+        columns.push(Column {
+            name,
+            key,
+            primitive_cells: 0,
+            nested_cells: Vec::new(),
+        });
+    }
+
+    Some(columns)
 }
 
 /// Return the field list when every value shares one uniform object shape:
 /// the detection used by both tabular and keyed tabular form (Sections 9.3
 /// and 9.5).
-fn detect_uniform(values: &[Bound<'_, PyAny>], depth: usize) -> PyResult<Option<Vec<Field>>> {
+fn detect_uniform<'py>(
+    mut values: impl Iterator<Item = Bound<'py, PyAny>>,
+    depth: usize,
+) -> PyResult<Option<Vec<Field<'py>>>> {
     // Detection recurses per column level; beyond the encoder's nesting
     // bound the value cannot be written anyway, so stop claiming a form.
     if depth >= MAX_DEPTH {
         return Ok(None);
     }
 
-    let Some(first) = values.first() else {
+    let Some(first) = values.next() else {
         return Ok(None);
     };
 
-    let Ok(first_dict) = first.cast::<PyDict>() else {
-        return Ok(None);
-    };
-
-    let Some(names) = string_keys(first_dict) else {
+    let Some(mut columns) = first.cast::<PyDict>().ok().and_then(columns_of) else {
         return Ok(None);
     };
 
     // An empty object disqualifies the whole collection (Section 9.3).
-    if names.is_empty() {
+    if columns.is_empty() {
         return Ok(None);
     }
 
-    let mut columns: Vec<Vec<Bound<'_, PyAny>>> = vec![Vec::new(); names.len()];
-
-    for value in values {
+    for value in std::iter::once(first).chain(values) {
         let Ok(dict) = value.cast::<PyDict>() else {
             return Ok(None);
         };
 
-        if dict.len() != names.len() {
+        if dict.len() != columns.len() {
             return Ok(None);
         }
 
-        for (index, name) in names.iter().enumerate() {
-            match dict.get_item(name)? {
-                Some(cell) => columns[index].push(cell),
+        for column in columns.iter_mut() {
+            match dict.get_item(&column.key)? {
+                Some(cell) if is_primitive(&cell) => column.primitive_cells += 1,
+                Some(cell) => column.nested_cells.push(cell),
                 None => return Ok(None),
             }
         }
     }
 
-    let mut fields = Vec::with_capacity(names.len());
+    let mut fields = Vec::with_capacity(columns.len());
 
-    for (name, column) in names.into_iter().zip(columns) {
-        if column.iter().all(is_primitive) {
-            fields.push(Field::Leaf(name));
+    for column in columns {
+        if column.nested_cells.is_empty() {
+            fields.push(Field::Leaf {
+                name: column.name,
+                key: column.key,
+            });
             continue;
         }
 
+        if column.primitive_cells > 0 {
+            return Ok(None);
+        }
+
         // A nested-uniform column becomes a nested field group.
-        match detect_uniform(&column, depth + 1)? {
-            Some(children) => fields.push(Field::Group(name, children)),
+        match detect_uniform(column.nested_cells.into_iter(), depth + 1)? {
+            Some(children) => fields.push(Field::Group {
+                name: column.name,
+                key: column.key,
+                children,
+            }),
             None => return Ok(None),
         }
     }
@@ -700,18 +766,16 @@ fn detect_uniform(values: &[Bound<'_, PyAny>], depth: usize) -> PyResult<Option<
 
 /// Return the field list when an array qualifies for tabular form
 /// (Section 9.3).
-fn detect_tabular(list: &Bound<'_, PyList>) -> PyResult<Option<Vec<Field>>> {
-    let elements: Vec<Bound<'_, PyAny>> = list.iter().collect();
-    detect_uniform(&elements, 0)
+fn detect_tabular<'py>(list: &Bound<'py, PyList>) -> PyResult<Option<Vec<Field<'py>>>> {
+    detect_uniform(list.iter(), 0)
 }
 
 /// Return the field list when an object qualifies for keyed tabular form
 /// (Section 9.5).
-fn detect_keyed(dict: &Bound<'_, PyDict>) -> PyResult<Option<Vec<Field>>> {
-    if dict.len() < 2 || string_keys(dict).is_none() {
+fn detect_keyed<'py>(dict: &Bound<'py, PyDict>) -> PyResult<Option<Vec<Field<'py>>>> {
+    if dict.len() < 2 || !dict.iter().all(|(key, _)| key.is_instance_of::<PyString>()) {
         return Ok(None);
     }
 
-    let values: Vec<Bound<'_, PyAny>> = dict.values().iter().collect();
-    detect_uniform(&values, 0)
+    detect_uniform(dict.iter().map(|(_, value)| value), 0)
 }
