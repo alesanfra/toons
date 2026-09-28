@@ -31,6 +31,22 @@ class TestUnsupportedTypes:
         with pytest.raises(TypeError, match="keys must be strings"):
             toons.dumps({key: "value"})
 
+    @pytest.mark.parametrize(
+        "obj",
+        [
+            pytest.param({"\ud800": 1}, id="root-object"),
+            pytest.param({"a": {"\ud800": 1}}, id="nested-object"),
+            pytest.param(
+                {"t": {"\ud800": {"a": 1}, "r": {"a": 2}}}, id="keyed-row"
+            ),
+            pytest.param([{"a": [1], "\ud800": 1}], id="list-item-object"),
+        ],
+    )
+    def test_surrogate_key_raises_type_error(self, obj):
+        """A key with an unpaired surrogate has no UTF-8 form to write."""
+        with pytest.raises(TypeError, match="keys must be strings"):
+            toons.dumps(obj)
+
     def test_dump_rejects_unsupported_value(self):
         """dump() applies the same rules as dumps()."""
         with pytest.raises(TypeError, match="not TOON serializable"):
