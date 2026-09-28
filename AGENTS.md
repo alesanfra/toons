@@ -108,6 +108,9 @@ formatters and linters locally.
   interpreter rather than raising.
 - Values that cannot be represented raise `TypeError`. Do not fall back to
   `null`: silent data loss was a bug, not a feature.
+- Keys are read through `key_text`, so a key with no UTF-8 form (an
+  unpaired surrogate) raises the same `TypeError` as a non-string key, not
+  `UnicodeEncodeError`.
 
 ### Decoder invariants
 

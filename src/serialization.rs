@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use pyo3::types::{
     PyBool, PyDate, PyDateTime, PyDict, PyFloat, PyInt, PyList, PyString, PyTime, PyTuple,
 };
+use std::borrow::Cow;
 use std::fmt::Write as FmtWrite;
 
 /// Maximum container nesting accepted by the encoder. Mirrors CPython's
@@ -147,7 +148,7 @@ impl Encoder {
             if index > 0 {
                 self.write_newline(0);
             }
-            self.write_field(&key.to_cow()?, value, 0)?;
+            self.write_field(&key_text(key)?, value, 0)?;
         }
 
         Ok(())
@@ -228,7 +229,7 @@ impl Encoder {
 
         for (key, value) in entries_of(dict)?.iter() {
             self.write_newline(depth + 1);
-            self.write_field(&key.to_cow()?, value, depth + 1)?;
+            self.write_field(&key_text(key)?, value, depth + 1)?;
         }
 
         Ok(())
@@ -307,7 +308,7 @@ impl Encoder {
     ) -> PyResult<()> {
         for (key, value) in entries_of(dict)?.iter() {
             self.write_newline(depth);
-            self.write_key(&key.to_cow()?);
+            self.write_key(&key_text(key)?);
             self.out.push_str(": ");
             let entry = value.cast::<PyDict>()?;
             let mut first_cell = true;
@@ -406,7 +407,7 @@ impl Encoder {
             } else {
                 self.write_newline(depth + 1);
             }
-            self.write_field(&key.to_cow()?, value, depth + 1)?;
+            self.write_field(&key_text(key)?, value, depth + 1)?;
         }
 
         Ok(())
@@ -522,13 +523,18 @@ fn entries_of<'py>(
 
     for (key, value) in dict.iter() {
         match key.cast_into::<PyString>() {
-            Ok(key) if key.to_cow().is_ok() => entries.push((key, value)),
-            Ok(key) => return Err(non_string_key(key.as_any())),
+            Ok(key) => entries.push((key, value)),
             Err(error) => return Err(non_string_key(&error.into_inner())),
         }
     }
 
     Ok(entries)
+}
+
+/// Borrow a key's text. A str holding an unpaired surrogate has no UTF-8
+/// form and is rejected like a non-string key.
+fn key_text<'a>(key: &'a Bound<'_, PyString>) -> PyResult<Cow<'a, str>> {
+    key.to_cow().map_err(|_| non_string_key(key.as_any()))
 }
 
 fn non_string_key(key: &Bound<'_, PyAny>) -> PyErr {
