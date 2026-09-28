@@ -38,6 +38,7 @@ sync with the compiled signatures.
 | `toons.pyi` | Type stubs, shipped in the wheel |
 | `tests/integration/` | pytest suite |
 | `tests/integration/fixtures/` | Official spec fixtures, vendored as JSON |
+| `tests/benchmarks/` | Encoder timing tests, outside the default run |
 | `docs/` | MkDocs site published on Read the Docs |
 | `examples/` | Runnable scripts |
 
@@ -147,6 +148,20 @@ and assertions on complete output rather than substrings.
   new or changed argument fails the suite until the stub is updated.
 
 Run a subset with `uv run --no-sync pytest -k tabular`.
+
+A plain `pytest` runs only `tests/integration/` (`testpaths` in
+`pyproject.toml`). The timing tests in `tests/benchmarks/` bound `dumps`
+against `json.dumps` and are calibrated on a release build, so the debug
+build from `maturin develop --uv` fails them. Run them explicitly:
+
+```bash
+uv run maturin develop --uv --release
+uv run --no-sync pytest tests/benchmarks
+```
+
+Their payloads live in `tests/benchmarks/payloads.py`;
+`tests/integration/test_benchmark_payloads.py` round-trips them in the
+default run.
 
 ## Docs
 

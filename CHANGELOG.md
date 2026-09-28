@@ -15,9 +15,10 @@ All notable changes to this project are documented here. The format follows
   than collected during tabular detection, and built-in types are matched by
   exact type check before the `extract` fallbacks. Encoding is 2.3x to 4.1x
   faster on tabular, nested, keyed, and flat payloads; on three of the four it
-  is now at or below `json.dumps`. `tests/integration/test_encode_performance.py`
-  bounds the ratio to `json.dumps` per payload shape, and
-  `benchmarks/encode_vs_json.py` prints it.
+  is now at or below `json.dumps`. `tests/benchmarks/` bounds the ratio to
+  `json.dumps` per payload shape; run it against a release build with
+  `uv run --no-sync pytest tests/benchmarks`. A plain `pytest` now runs only
+  `tests/integration/`.
 
 ## [0.8.0] - 2026-09-17
 
