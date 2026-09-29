@@ -1,7 +1,7 @@
 # TOONS - Token Oriented Object Notation Serializer
 
 [![PyPI version](https://badge.fury.io/py/toons.svg)](https://badge.fury.io/py/toons)
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Documentation Status](https://readthedocs.org/projects/toons/badge/?version=latest)](https://toons.readthedocs.io/en/latest/?badge=latest)
 [![CI](https://github.com/alesanfra/toons/workflows/CI/badge.svg)](https://github.com/alesanfra/toons/actions)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/toons?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/toons)

@@ -19,6 +19,11 @@ All notable changes to this project are documented here. The format follows
   `json.dumps` per payload shape; run it against a release build with
   `uv run --no-sync pytest tests/benchmarks`. A plain `pytest` now runs only
   `tests/integration/`.
+- **Breaking:** Python 3.10 is now the minimum and wheels are tagged
+  `cp310-abi3`. Both 3.8 and 3.9 are end-of-life. Python 3.10 added
+  `PyUnicode_AsUTF8AndSize` to the limited API, so the encoder borrows a
+  str's UTF-8 text in place instead of copying it through a temporary
+  bytes object. Python 3.8 and 3.9 users stay on 0.8.0.
 
 ## [0.8.0] - 2026-09-17
 
